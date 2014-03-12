@@ -1,5 +1,6 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re
+from bunch import Bunch
 from enlib.utils import lines
 from enlib.zgetdata import dirfile
 
@@ -94,6 +95,17 @@ def read_cut(fname):
 			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
 	return oids, enlib.rangelist.Multirange(ocuts)
 
+def read_site(fname):
+	"""Given a filename or file, parse a file with key = value information and return
+	it as a Bunch."""
+	res = Bunch()
+	for line in lines(fname):
+		if line.isspace(): continue
+		a = ast.parse(line)
+		id = a.body[0].targets[0].id
+		res[id] = ast.literal_eval(a.body[0].value)
+	return res
+
 def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 	"""Given a filename or dirfile, reads the time ordered data from the file,
 	returning ids,data. If the ids argument is specified, only those ids will
@@ -126,7 +138,7 @@ def read_boresight(fname):
 		with dirfile(fname) as dfile:
 			return read(dfile)
 	else:
-		return read(dfile)
+		return read(fname)
 
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
