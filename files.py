@@ -1,6 +1,7 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re
 from enlib.utils import lines
+from enlib.zgetdata import dirfile
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -92,6 +93,40 @@ def read_cut(fname):
 			oids.append(id)
 			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
 	return oids, enlib.rangelist.Multirange(ocuts)
+
+def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
+	"""Given a filename or dirfile, reads the time ordered data from the file,
+	returning ids,data. If the ids argument is specified, only those ids will
+	be retrieved. The mapping argument defines the mapping between ids and
+	actual fields in the file, and ndet specifies the maximum number of detectors.
+	These can usually be ignored."""
+	# Find which ids to read
+	if ids is None: ids = np.arange(ndet)
+	ids = np.asarray(ids)
+	rowcol = ids if ids.ndim == 2 else np.asarray(mapping(ids))
+	def read(dfile, rowcol):
+		nsamp = dfile.spf("tesdatar%02dc%02d" % tuple(rowcol[:,0]))*dfile.nframes
+		res   = np.empty([rowcol.shape[1],nsamp],dtype=int)
+		for i, (r,c) in enumerate(rowcol.T):
+			# The four lowest bits are status flags
+			res[i] = dfile.getdata("tesdatar%02dc%02d" % (r,c)) >> 4
+		return res
+	if isinstance(fname, basestring):
+		with dirfile(fname) as dfile:
+			return ids, read(dfile, rowcol)
+	else:
+		return ids, read(fname, rowcol)
+
+def read_boresight(fname):
+	"""Given a filename or dirfile, reads the timestamp, azimuth, elevation and
+	encoder flags for the telescope's boresight. No deglitching or other corrections
+	are performed. Returns [unix time,az (deg),dec(deg)], flags."""
+	def read(dfile): return np.array([dfile.getdata("C_Time"),dfile.getdata("Enc_Az_Deg_Astro")+180,dfile.getdata("Enc_El_Deg")]), dfile.getdata("enc_flags")
+	if isinstance(fname, basestring):
+		with dirfile(fname) as dfile:
+			return read(dfile)
+	else:
+		return read(dfile)
 
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
