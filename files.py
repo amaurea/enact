@@ -40,10 +40,10 @@ def read_tconst(fname):
 	return res[0].astype(int), res[1]
 
 def read_point_template(fname):
-	"""Reads the per-detector pointing offsets, returning it in the form id,[dx,dy]."""
+	"""Reads the per-detector pointing offsets, returning it in the form id,[[dx,dy]]."""
 	res = np.loadtxt(fname, usecols=[0,1,2,4]).T
 	res = res[:,res[1]>0][[0,2,3]]
-	return res[0].astype(int), res[1:]
+	return res[0].astype(int), res[1:].T
 
 def read_point_offsets(fname):
 	"""Reads per-tod pointing offsets, returning it in the form {todID: [dx,dy])."""
