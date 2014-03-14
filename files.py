@@ -55,7 +55,7 @@ def read_point_offsets(fname):
 	return res
 
 def read_cut(fname):
-	"""Reads the act cut format, returning ids,cuts, where cuts is a Multirange
+	"""Reads the act cut format, returning ids,cuts,offset, where cuts is a Multirange
 	object."""
 	ids, cuts = [], []
 	header = re.compile(r"^(\w+) *= *(\w+)$")
@@ -93,7 +93,7 @@ def read_cut(fname):
 		if len(cut) > 1 or len(cut) == 1 and not (np.all(cut[0]==[0,0x7fffffff]) or np.all(cut[0]==[0,nsamp])):
 			oids.append(id)
 			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
-	return oids, enlib.rangelist.Multirange(ocuts)
+	return oids, enlib.rangelist.Multirange(ocuts), offset
 
 def read_site(fname):
 	"""Given a filename or file, parse a file with key = value information and return

@@ -2,7 +2,7 @@
 fildb entries instead of filenames, and reading all the information for you."""
 import numpy as np
 from enact import files, errors
-from enlib import zgetdata, utils
+from enlib import zgetdata, utils, gapfill
 from bunch import Bunch # use a simple bunch for now
 
 def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]):
@@ -30,7 +30,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		if "tconst" in fields:
 			dets.tau,  res.tau = files.read_tconst(entry.tconst)
 		if "cut" in fields:
-			dets.cut, res.cut = files.read_cut(entry.cut)
+			dets.cut, res.cut, res.sample_offset = files.read_cut(entry.cut)
 		if "point_offsets" in fields:
 			dets.point_offset, res.point_offset  = files.read_point_template(entry.point_template)
 			res.point_offset += files.read_point_offsets(entry.point_offsets)[entry.id]
@@ -55,3 +55,37 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		raise errors.DataMissing(e.message + "[%s]" % entry.id)
 	res.dets = dets
 	return res
+
+def calibrate(data):
+	"""Prepares the data (in the format returned from data.read) for
+	general consumption by applying calibration factors, deglitching,
+	etc. Note: This function changes its argument."""
+	# Apply the sample offset
+	data.tod = data.tod[:,data.sample_offset:]
+	data.boresight = data.boresight[:,data.sample_offset:]
+	data.flags = data.flags[data.sample_offset:]
+
+	# Apply gain and make sure cut regions are reasonably well-behaved
+	data.tod = data.tod * data.gain[:,None]
+	gapfill.gapfill_copy(data.tod, data.cut, inplace=True)
+
+	# Smooth over gaps in the encoder values and convert to radians
+	data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
+	for b in data.boresight[1:]:
+		gapfill.gapfill_linear(b, (data.flags != 0)*(data.flags != 0x10), inplace=True)
+
+	# Convert pointing offsets from focalplane offsets to ra,dec offsets
+	data.point_offset = offset_to_radec(data.point_offset, data.boresight[1:,0])
+
+	# We operate in-place, but return for good measure
+	return data
+
+def offset_to_radec(offs, azel):
+	az, el = azel
+	dx, dy = offs.T
+	dz = np.sqrt(1-dx**2-dy**2)
+	y2 = dz*np.sin(el)+dy*np.cos(el)
+	z2 = dz*np.cos(el)-dy*np.sin(el)
+	dEl = np.arcsin(y2)-el
+	dAz = np.arctan2(dx, z2)
+	return np.array((dAz,dEl)).T
