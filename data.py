@@ -1,8 +1,8 @@
 """This module provides higher-level access to actpol data input, operating on
 fildb entries instead of filenames, and reading all the information for you."""
 import numpy as np
-from enact import files, errors
-from enlib import zgetdata, utils, gapfill
+from enact import files, errors, filters
+from enlib import zgetdata, utils, gapfill, fft
 from bunch import Bunch # use a simple bunch for now
 
 def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]):
@@ -65,14 +65,26 @@ def calibrate(data):
 	data.boresight = data.boresight[:,data.sample_offset:]
 	data.flags = data.flags[data.sample_offset:]
 
-	# Apply gain and make sure cut regions are reasonably well-behaved
-	data.tod = data.tod * data.gain[:,None]
-	gapfill.gapfill_copy(data.tod, data.cut, inplace=True)
-
 	# Smooth over gaps in the encoder values and convert to radians
 	data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
-	for b in data.boresight[1:]:
-		gapfill.gapfill_linear(b, (data.flags != 0)*(data.flags != 0x10), inplace=True)
+	bad = srate_mask(data.boresight[0]) + (data.flags!=0)*(data.flags!=0x10)
+	for b in data.boresight:
+		gapfill.gapfill_linear(b, bad, inplace=True)
+
+	# Apply gain, make sure cut regions are reasonably well-behaved,
+	# and make it fourier-friendly by removing a slope.
+	data.tod = data.tod * data.gain[:,None]
+	gapfill.gapfill_copy(data.tod, data.cut, inplace=True)
+	utils.deslope(data.tod, w=8, inplace=True)
+
+	# Unapply instrument filters
+	ft     = fft.rfft(data.tod)
+	srate  = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
+	freqs  = np.linspace(0, srate/2, ft.shape[-1])
+	butter = filters.butterworth_filter(freqs)
+	for di in range(len(ft)):
+		ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
+	fft.irfft(ft, data.tod)
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
 	data.point_offset = offset_to_radec(data.point_offset, data.boresight[1:,0])
@@ -89,3 +101,14 @@ def offset_to_radec(offs, azel):
 	dEl = np.arcsin(y2)-el
 	dAz = np.arctan2(dx, z2)
 	return np.array((dAz,dEl)).T
+
+def srate_mask(t, tolerance=0.5):
+	"""Returns a boolean array indicating which samples
+	of a supposedly constant step-size array do not follow
+	the dominant step size. tolerance indicates the maximum
+	fraction of the average step to allow."""
+	n    = t.size
+	dt   = utils.medmean(t[1:]-t[:-1])
+	tmodel  = np.arange(t.size)*dt
+	tmodel += utils.medmean(t-tmodel)
+	return np.abs(t-tmodel)>dt*tolerance
