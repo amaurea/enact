@@ -1,8 +1,8 @@
 """This module provides higher-level access to actpol data input, operating on
 fildb entries instead of filenames, and reading all the information for you."""
 import numpy as np
-from enact import files, errors, filters
-from enlib import zgetdata, utils, gapfill, fft
+from enact import files, filters
+from enlib import zgetdata, utils, gapfill, fft, errors
 from bunch import Bunch # use a simple bunch for now
 
 def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]):
