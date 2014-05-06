@@ -132,7 +132,7 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 def read_boresight(fname):
 	"""Given a filename or dirfile, reads the timestamp, azimuth, elevation and
 	encoder flags for the telescope's boresight. No deglitching or other corrections
-	are performed. Returns [unix time,az (deg),dec(deg)], flags."""
+	are performed. Returns [unix time,az (deg),el(deg)], flags."""
 	def read(dfile): return np.array([dfile.getdata("C_Time"),dfile.getdata("Enc_Az_Deg_Astro")+180,dfile.getdata("Enc_El_Deg")]), dfile.getdata("enc_flags")
 	if isinstance(fname, basestring):
 		with dirfile(fname) as dfile:

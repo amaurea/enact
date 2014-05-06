@@ -1,9 +1,56 @@
 """This module provides higher-level access to actpol data input, operating on
-fildb entries instead of filenames, and reading all the information for you."""
+fildb entries instead of filenames, and reading all the information for you.
+
+These operations are all ACT-specific, but the results follow a more general interface
+which could also be used for general simulations. What is actually needed for the
+analysis is
+
+ .boresight[nsamp,{t,az,el}]
+ .point_offsets[ndet,{az,el}]
+ .comps[ndet,:]
+ .sys
+
+for the left hand side, and additionally
+
+ .tod[ndet,nsamp]
+
+for the right hand side. Any function that provides this should be
+processable by the higher-level functions. So instead of doing
+ a = calibrate(read(entry))
+ process(a)
+you could do
+ a = simulate(...)
+ process(a)
+"""
 import numpy as np
 from enact import files, filters
-from enlib import zgetdata, utils, gapfill, fft, errors
+from enlib import zgetdata, utils, gapfill, fft, errors, scan
 from bunch import Bunch # use a simple bunch for now
+
+class ACTScan(scan.Scan):
+	def __init__(self, entry):
+		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site"])
+		calibrate(d)
+		ndet = d.point_offset.shape[1]
+		# Necessary components for Scan interface
+		self.boresight = np.ascontiguousarray(d.boresight.T)
+		self.boresight[:,0] = utils.ctime2mjd(self.boresight[:,0])
+		self.offsets   = np.zeros([ndet,self.boresight.shape[1]])
+		self.offsets[:,1:] = self.point_offset.T
+		self.comps     = np.zeros([ndet,4])
+		self.comps[:,0] = 1
+		self.comps[:,1] = np.cos(2*d.polangle)
+		self.comps[:,2] = np.sin(2*d.polangle)
+		self.comps[:,3] = 0
+		self.sys = "hor"
+		# Implementation details
+		self.entry = entry
+	def get_samples(self):
+		d = read(entry)
+		calibrate(d)
+		return d.tod
+	def __repr__(self):
+		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.entry.id)
 
 def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]):
 	"""Given a filedb entry, reads all the data associated with the
@@ -61,33 +108,36 @@ def calibrate(data):
 	general consumption by applying calibration factors, deglitching,
 	etc. Note: This function changes its argument."""
 	# Apply the sample offset
-	data.tod = data.tod[:,data.sample_offset:]
-	data.boresight = data.boresight[:,data.sample_offset:]
-	data.flags = data.flags[data.sample_offset:]
+	if "tod" in data:       data.tod = data.tod[:,data.sample_offset:]
+	if "boresight" in data: data.boresight = data.boresight[:,data.sample_offset:]
+	if "flags" in data:     data.flags = data.flags[data.sample_offset:]
 
 	# Smooth over gaps in the encoder values and convert to radians
-	data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
-	bad = srate_mask(data.boresight[0]) + (data.flags!=0)*(data.flags!=0x10)
-	for b in data.boresight:
-		gapfill.gapfill_linear(b, bad, inplace=True)
+	if "boresight" in data:
+		data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
+		bad = srate_mask(data.boresight[0]) + (data.flags!=0)*(data.flags!=0x10)
+		for b in data.boresight:
+			gapfill.gapfill_linear(b, bad, inplace=True)
 
 	# Apply gain, make sure cut regions are reasonably well-behaved,
 	# and make it fourier-friendly by removing a slope.
-	data.tod = data.tod * data.gain[:,None]
-	gapfill.gapfill_copy(data.tod, data.cut, inplace=True)
-	utils.deslope(data.tod, w=8, inplace=True)
+	if "tod" in data:
+		data.tod = data.tod * data.gain[:,None]
+		gapfill.gapfill_copy(data.tod, data.cut, inplace=True)
+		utils.deslope(data.tod, w=8, inplace=True)
 
-	# Unapply instrument filters
-	ft     = fft.rfft(data.tod)
-	srate  = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
-	freqs  = np.linspace(0, srate/2, ft.shape[-1])
-	butter = filters.butterworth_filter(freqs)
-	for di in range(len(ft)):
-		ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
-	fft.irfft(ft, data.tod)
+		# Unapply instrument filters
+		ft     = fft.rfft(data.tod)
+		srate  = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
+		freqs  = np.linspace(0, srate/2, ft.shape[-1])
+		butter = filters.butterworth_filter(freqs)
+		for di in range(len(ft)):
+			ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
+		fft.irfft(ft, data.tod)
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
-	data.point_offset = offset_to_radec(data.point_offset, data.boresight[1:,0])
+	if "point_offset" in data:
+		data.point_offset = offset_to_radec(data.point_offset, data.boresight[1:,0])
 
 	# We operate in-place, but return for good measure
 	return data
