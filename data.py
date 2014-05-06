@@ -36,8 +36,8 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			res.point_offset += files.read_point_offsets(entry.point_offsets)[entry.id]
 		if "site" in fields:
 			res.site = files.read_site(entry.site)
-	except IOError  as e: raise DataMissing("%s [%s]" % (e.message, entry.id))
-	except KeyError as e: raise DataMissing("Gain correction or pointing offset [%s]" % entry.id)
+	except IOError  as e: raise errors.DataMissing("%s [%s]" % (e.message, entry.id))
+	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
 	# Restrict to common set of ids
 	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
 	for key in dets:
