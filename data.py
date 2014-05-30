@@ -31,23 +31,31 @@ class ACTScan(scan.Scan):
 	def __init__(self, entry):
 		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site"])
 		calibrate(d)
-		ndet = d.point_offset.shape[1]
+		ndet = d.polangle.size
 		# Necessary components for Scan interface
-		self.boresight = np.ascontiguousarray(d.boresight.T)
-		self.boresight[:,0] = utils.ctime2mjd(self.boresight[:,0])
+		self.mjd0      = utils.ctime2mjd(d.boresight[0,0])
+		self.boresight = np.ascontiguousarray(d.boresight.T.copy())
+		self.boresight[:,0] -= self.boresight[0,0]
 		self.offsets   = np.zeros([ndet,self.boresight.shape[1]])
-		self.offsets[:,1:] = self.point_offset.T
+		self.offsets[:,1:] = d.point_offset
+		self.cut       = d.cut.copy()
 		self.comps     = np.zeros([ndet,4])
 		self.comps[:,0] = 1
 		self.comps[:,1] = np.cos(2*d.polangle)
 		self.comps[:,2] = np.sin(2*d.polangle)
 		self.comps[:,3] = 0
 		self.sys = "hor"
+		self.site = d.site
 		# Implementation details
 		self.entry = entry
 	def get_samples(self):
-		d = read(entry)
+		"""Return the actual detector samples. Slow! Data is read from disk and
+		calibrated on the fly, so store the result if you need to reuse it."""
+		print "A"
+		d = read(self.entry)
+		print "B"
 		calibrate(d)
+		print "C"
 		return d.tod
 	def __repr__(self):
 		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.entry.id)
