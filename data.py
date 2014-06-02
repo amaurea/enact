@@ -58,7 +58,7 @@ class ACTScan(scan.Scan):
 		tod = d.tod
 		for s in self.sampslices:
 			tod = enlib.slice.slice_downgrade(tod, s)
-		return tod
+		return np.ascontiguousarray(tod)
 	def __repr__(self):
 		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.entry.id)
 	def __getitem__(self, sel):

@@ -45,9 +45,11 @@ contains
 
 		!$omp parallel do private(bi,b1,b2,v1,v2,nf,nv,Qd,orig,iNud,di) schedule(dynamic)
 		do bi = nbin, 1, -1
-			b1 =  bins(1,bi)+1; b2 =  bins(2,bi)
-			v1 = vbins(1,bi)+1; v2 = vbins(2,bi)
+			b1 = bins(1,bi)+1;   b2 = bins(2,bi)
+			b1 = min(b1, nfreq); b2 = min(b2,nfreq)
+			v1 = vbins(1,bi)+1;  v2 = vbins(2,bi)
 			nf = b2-b1+1; nv = v2-v1+1
+			if(nf < 1) continue ! Skip empty bins
 			allocate(Qd(nv,nf)) ! Q'd'
 			allocate(orig(nf,ndet), iNud(nf,ndet))
 			Qd = 0; iNud = 0
