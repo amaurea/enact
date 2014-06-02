@@ -22,7 +22,7 @@ you could do
  a = simulate(...)
  process(a)
 """
-import numpy as np
+import numpy as np, enlib.slice
 from enact import files, filters
 from enlib import zgetdata, utils, gapfill, fft, errors, scan
 from bunch import Bunch # use a simple bunch for now
@@ -48,19 +48,25 @@ class ACTScan(scan.Scan):
 		self.site = d.site
 		# Implementation details
 		self.entry = entry
+		self.dets  = np.arange(ndet)
+		self.sampslices = []
 	def get_samples(self):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
-		print "A"
-		d = read(self.entry)
-		print "B"
+		d = read(self.entry, subdets=self.dets)
 		calibrate(d)
-		print "C"
-		return d.tod
+		tod = d.tod
+		for s in self.sampslices:
+			tod = enlib.slice.slice_downgrade(tod, s)
+		return tod
 	def __repr__(self):
 		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.entry.id)
+	def __getitem__(self, sel):
+		res, detslice, sampslice = self.getitem_helper(sel)
+		res.sampslices.append(sampslice)
+		return res
 
-def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]):
+def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"], subdets=None):
 	"""Given a filedb entry, reads all the data associated with the
 	fields specified (default: ["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]).
 	Only detectors for which all the information is present will be
@@ -96,8 +102,13 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	# Restrict to common set of ids
 	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
 	for key in dets:
-		res[key]  = res[key][inds[key]]
-		dets[key] = np.array(dets[key])[inds[key]]
+		I = inds[key]
+		# Restrict to user-chosen subset. NOTE: This is based on indices
+		# into the set that would normally be accepted, not raw detector
+		# values!
+		if subdets != None: I = I[subdets]
+		res[key]  = res[key][I]
+		dets[key] = np.array(dets[key])[I]
 	dets = dets.values()[0]
 	# Then get the boresight and time-ordered data
 	try:
