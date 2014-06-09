@@ -127,9 +127,15 @@ def calibrate(data):
 	general consumption by applying calibration factors, deglitching,
 	etc. Note: This function changes its argument."""
 	# Apply the sample offset
-	if "tod" in data:       data.tod = data.tod[:,data.sample_offset:]
-	if "boresight" in data: data.boresight = data.boresight[:,data.sample_offset:]
-	if "flags" in data:     data.flags = data.flags[data.sample_offset:]
+	if "tod" in data:
+		data.tod = data.tod[:,data.sample_offset:]
+		nsamp = data.tod.shape[1]
+	if "boresight" in data:
+		data.boresight = data.boresight[:,data.sample_offset:]
+		nsamp = data.boresight.shape[1]
+	if "flags" in data:
+		data.flags = data.flags[data.sample_offset:]
+		nsamp = data.flags.shape[0]
 
 	# Smooth over gaps in the encoder values and convert to radians
 	if "boresight" in data:
@@ -137,6 +143,25 @@ def calibrate(data):
 		bad = srate_mask(data.boresight[0]) + (data.flags!=0)*(data.flags!=0x10)
 		for b in data.boresight:
 			gapfill.gapfill_linear(b, bad, inplace=True)
+
+	# Truncate to a fourier-friendly length. This may cost up to about 1% of
+	# the data. This is most naturally done here because
+	#  1. We need to fft when calibrating the tod
+	#  2. The desloping needs to be done on the final array.
+	# A disadvantage is that data.cut will have a different
+	# length it is the only thing read, compared to if it is
+	# read together with tod, boresight or flags. This is because
+	# cuts does not know the length of the data. We could mitigate
+	# this by truncating at the end rather than beginning. But the
+	# beginning has more systematic errors, so it is the best one
+	# to remove.
+	try:
+		nsamp = fft.fft_len(nsamp)
+		if "tod"       in data: data.tod       = data.tod[:,-nsamp:]
+		if "boresight" in data: data.boresight = data.boresight[:,-nsamp:]
+		if "flags"     in data: data.flags     = data.flags[-nsamp:]
+		if "cut"       in data: data.cut       = data.cut[:,-nsamp:]
+	except NameError: pass
 
 	# Apply gain, make sure cut regions are reasonably well-behaved,
 	# and make it fourier-friendly by removing a slope.
