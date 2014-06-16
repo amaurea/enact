@@ -64,6 +64,7 @@ class ACTScan(scan.Scan):
 	def __getitem__(self, sel):
 		res, detslice, sampslice = self.getitem_helper(sel)
 		res.sampslices.append(sampslice)
+		res.dets = res.dets[detslice]
 		return res
 
 def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"], subdets=None):
@@ -177,7 +178,7 @@ def calibrate(data):
 		butter = filters.butterworth_filter(freqs)
 		for di in range(len(ft)):
 			ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
-		fft.irfft(ft, data.tod)
+		fft.irfft(ft, data.tod, normalize=True)
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
 	if "point_offset" in data:
