@@ -1,4 +1,5 @@
-import numpy as np, scipy as sp, enlib.bins, bunch
+import numpy as np, scipy as sp, enlib.bins
+from enlib import nmat
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated
@@ -27,7 +28,7 @@ import numpy as np, scipy as sp, enlib.bins, bunch
 # to numpy's ffts, this means dividing the fourier
 # array by sqrt(n).
 
-def detvecs_old(fourier, srate):
+def detvecs_old(fourier, srate, dets=None):
 	ndet, nfreq = fourier.shape
 	# Use bins with exponential spacing
 	bins = enlib.bins.expbin(nfreq, nbin=100, nmin=10)
@@ -84,10 +85,9 @@ def detvecs_old(fourier, srate):
 		V.append(vcov)
 		E.append(ecov)
 
-	return prepare_params(bins, Nu, E, V)
+	return prepare_detvecs(Nu, V, E, bins, srate, dets)
 
-
-def detvecs_simple(fourier, srate):
+def detvecs_simple(fourier, srate, dets=None):
 	nfreq = fourier.shape[1]
 	ndet  = fourier.shape[0]
 
@@ -98,12 +98,11 @@ def detvecs_simple(fourier, srate):
 	for bi, b in enumerate(bins_power):
 		d     = fourier[:,b[0]:b[1]]
 		Nd[bi] = measure_power(d)
-
 	V = np.zeros([nbin,0,ndet])
 	E = np.zeros([nbin,0])
-	return prepare_params(bins_power, Nd, E, V)
+	return prepare_detvecs(Nd, V, E, bins_power, srate, dets)
 
-def detvecs_jon(ft, srate):
+def detvecs_jon(ft, srate, dets=None):
 	nfreq  = ft.shape[1]
 	# Construct our frequency bins
 	bins = makebins([
@@ -137,34 +136,17 @@ def detvecs_jon(ft, srate):
 		Nd.append(np.mean(np.abs(d)**2,1))
 		V.append(vecs)
 
-	return prepare_params(bins, Nu, E, V)
+	return prepare_detvecs(Nu, V, E, bins, srate, dets)
 
-def prepare_params(bins, Nu, E, V):
-	"""Return a Detvecs params object given measured diagonal noise Nu[nbin,ndet],
-	correlated eigenvalues E[nbin][nmode] and correlated modes V[nbin][nmode,ndet]
-	for the given bins[nbin,2]."""
-	vtmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in E]))])
+def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets):
+	D = np.asarray(D)
+	if dets is None: dets = np.arange(D.shape[1])
+	assert len(dets) == D.shape[1]
+	fbins = ibins*(srate/2)/ibins[-1,-1]
+	vtmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in Elist]))])
 	vbins= np.array([vtmp[0:-1],vtmp[1:]]).T
-	E, V = np.hstack(E), np.hstack(V)
-	iNu  = np.array(1/Nu)
-	Q    = np.zeros(V.T.shape)
-	def eig_pow(A, p):
-		if A.size == 0: return A
-		e,v = np.linalg.eigh(A)
-		return v.dot(np.diag(e**p)).dot(v.T)
-	# Nu" - Nu"V(E"+V'Nu"V)"V'Nu" = Nu" - Q'Q
-	# Q = (E"+V'Nu"V)**-0.5 V'Nu
-	# Q[nvec,ndet]
-	for i, b in enumerate(vbins):
-		Vb, Eb, iNub = V[:,b[0]:b[1]], E[b[0]:b[1]], iNu[i]
-		VtNi   = Vb.T*iNub[None,:]
-		core   = np.diag(1/Eb) + VtNi.dot(Vb)
-		Q[b[0]:b[1],:] = eig_pow(core,-0.5).dot(VtNi)
-	return bunch.Bunch(
-		bins  = bins,
-		vbins = vbins,
-		iNu   = iNu,
-		Q     = Q)
+	E, V = np.hstack(Elist), np.hstack(Vlist).T
+	return nmat.NmatDetvecs(D, V, E, fbins, vbins, dets)
 
 def measure_cov(d):
 	(n,m) = d.shape

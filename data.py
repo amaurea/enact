@@ -24,12 +24,12 @@ you could do
 """
 import numpy as np, enlib.slice
 from enact import files, filters
-from enlib import zgetdata, utils, gapfill, fft, errors, scan
+from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat
 from bunch import Bunch # use a simple bunch for now
 
 class ACTScan(scan.Scan):
 	def __init__(self, entry):
-		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site"])
+		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"])
 		calibrate(d)
 		ndet = d.polangle.size
 		# Necessary components for Scan interface
@@ -46,9 +46,10 @@ class ACTScan(scan.Scan):
 		self.comps[:,3] = 0
 		self.sys = "hor"
 		self.site = d.site
+		self.noise = d.noise
 		# Implementation details
 		self.entry = entry
-		self.dets  = np.arange(ndet)
+		self.dets  = d.dets
 		self.sampslices = []
 	def get_samples(self):
 		"""Return the actual detector samples. Slow! Data is read from disk and
@@ -67,7 +68,7 @@ class ACTScan(scan.Scan):
 		res.dets = res.dets[detslice]
 		return res
 
-def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"], subdets=None):
+def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None):
 	"""Given a filedb entry, reads all the data associated with the
 	fields specified (default: ["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]).
 	Only detectors for which all the information is present will be
@@ -98,6 +99,9 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			res.point_offset += files.read_point_offsets(entry.point_offsets)[entry.id]
 		if "site" in fields:
 			res.site = files.read_site(entry.site)
+		if "noise" in fields:
+			res.noise  = nmat.read_nmat(entry.noise)
+			dets.noise = res.noise.dets
 	except IOError  as e: raise errors.DataMissing("%s [%s]" % (e.message, entry.id))
 	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
 	# Restrict to common set of ids
@@ -144,6 +148,7 @@ def calibrate(data):
 		bad = srate_mask(data.boresight[0]) + (data.flags!=0)*(data.flags!=0x10)
 		for b in data.boresight:
 			gapfill.gapfill_linear(b, bad, inplace=True)
+		data.srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 
 	# Truncate to a fourier-friendly length. This may cost up to about 1% of
 	# the data. This is most naturally done here because
@@ -173,8 +178,7 @@ def calibrate(data):
 
 		# Unapply instrument filters
 		ft     = fft.rfft(data.tod)
-		srate  = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
-		freqs  = np.linspace(0, srate/2, ft.shape[-1])
+		freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
 		butter = filters.butterworth_filter(freqs)
 		for di in range(len(ft)):
 			ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
