@@ -151,5 +151,6 @@ def read_pylike_format(fname):
 		res[id] = ast.literal_eval(a.body[0].value)
 		# reinsert all the nans. This assumes no nested lists
 		for i, v in enumerate(res[id]):
-			if v == "'nan'": res[id][i] = float(v)
+			if v == "'nan'": res[id][i] = np.nan
+			elif v == "nan": res[id][i] = np.nan
 	return res
