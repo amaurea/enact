@@ -87,6 +87,8 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		# Perform all the scary read operations
 		if "gain" in fields:
 			dets.gain, res.gain = files.read_gain(entry.gain)
+			mask = np.isfinite(res.gain)*(res.gain != 0)
+			dets.gain, res.gain = dets.gain[mask], res.gain[mask]
 			res.gain *= files.read_gain_correction(entry.gain_correction)[entry.id]
 		if "polangle" in fields:
 			dets.polangle, res.polangle = files.read_polangle(entry.polangle)
@@ -108,6 +110,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
 	for key in dets:
 		I = inds[key]
+		if len(I) == 0: raise errors.DataMissing("All detectors rejected!")
 		# Restrict to user-chosen subset. NOTE: This is based on indices
 		# into the set that would normally be accepted, not raw detector
 		# values!
