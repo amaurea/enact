@@ -28,8 +28,8 @@ from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat
 from bunch import Bunch # use a simple bunch for now
 
 class ACTScan(scan.Scan):
-	def __init__(self, entry):
-		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"])
+	def __init__(self, entry, subdets=None):
+		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
 		calibrate(d)
 		ndet = d.polangle.size
 		# Necessary components for Scan interface
@@ -44,17 +44,18 @@ class ACTScan(scan.Scan):
 		self.comps[:,1] = np.cos(2*d.polangle)
 		self.comps[:,2] = np.sin(2*d.polangle)
 		self.comps[:,3] = 0
+		self.dets  = d.dets
 		self.sys = "hor"
 		self.site = d.site
 		self.noise = d.noise
 		# Implementation details
 		self.entry = entry
-		self.dets  = d.dets
+		self.subdets = np.arange(ndet)
 		self.sampslices = []
 	def get_samples(self):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
-		d = read(self.entry, subdets=self.dets)
+		d = read(self.entry, subdets=self.subdets)
 		calibrate(d)
 		tod = d.tod
 		for s in self.sampslices:
@@ -65,7 +66,7 @@ class ACTScan(scan.Scan):
 	def __getitem__(self, sel):
 		res, detslice, sampslice = self.getitem_helper(sel)
 		res.sampslices.append(sampslice)
-		res.dets = res.dets[detslice]
+		res.subdets = res.subdets[detslice]
 		return res
 
 def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None):
