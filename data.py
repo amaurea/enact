@@ -87,25 +87,32 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	try:
 		# Perform all the scary read operations
 		if "gain" in fields:
+			reading = "gain"
 			dets.gain, res.gain = files.read_gain(entry.gain)
 			mask = np.isfinite(res.gain)*(res.gain != 0)
 			dets.gain, res.gain = dets.gain[mask], res.gain[mask]
 			res.gain *= files.read_gain_correction(entry.gain_correction)[entry.id]
 		if "polangle" in fields:
+			reading = "plangle"
 			dets.polangle, res.polangle = files.read_polangle(entry.polangle)
 		if "tconst" in fields:
+			reading = "tconst"
 			dets.tau,  res.tau = files.read_tconst(entry.tconst)
 		if "cut" in fields:
+			reading = "cut"
 			dets.cut, res.cut, res.sample_offset = files.read_cut(entry.cut)
 		if "point_offsets" in fields:
+			reading = "point_offsets"
 			dets.point_offset, res.point_offset  = files.read_point_template(entry.point_template)
 			res.point_offset += files.read_point_offsets(entry.point_offsets)[entry.id]
 		if "site" in fields:
+			reading = "site"
 			res.site = files.read_site(entry.site)
 		if "noise" in fields:
+			reading = "noise"
 			res.noise  = nmat.read_nmat(entry.noise)
 			dets.noise = res.noise.dets
-	except IOError  as e: raise errors.DataMissing("%s [%s]" % (e.message, entry.id))
+	except IOError  as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
 	# Restrict to common set of ids
 	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
@@ -150,6 +157,8 @@ def calibrate(data):
 	if "boresight" in data:
 		data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 		bad = srate_mask(data.boresight[0]) + (data.flags!=0)*(data.flags!=0x10)
+		if np.sum(bad) > 0.1*len(bad):
+			raise errors.DataMissing("Too many pointings flagged bad")
 		for b in data.boresight:
 			gapfill.gapfill_linear(b, bad, inplace=True)
 		data.srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
@@ -205,13 +214,14 @@ def offset_to_radec(offs, azel):
 	dAz = np.arctan2(dx, z2)
 	return np.array((dAz,dEl)).T
 
-def srate_mask(t, tolerance=0.5):
+def srate_mask(t, tolerance=400*10.0):
 	"""Returns a boolean array indicating which samples
 	of a supposedly constant step-size array do not follow
 	the dominant step size. tolerance indicates the maximum
 	fraction of the average step to allow."""
-	n    = t.size
-	dt   = utils.medmean(t[1:]-t[:-1])
-	tmodel  = np.arange(t.size)*dt
-	tmodel += utils.medmean(t-tmodel)
+	w    = 100
+	t0   = t[0]
+	dt   = (t[-1]-t[0])/(len(t)-1)
+	# Build constant srate model and flag too large deviations
+	tmodel  = np.arange(t.size)*dt+t0
 	return np.abs(t-tmodel)>dt*tolerance

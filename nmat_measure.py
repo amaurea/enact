@@ -120,13 +120,14 @@ def detvecs_jon(ft, srate, dets=None):
 	mbins = makebins([0.25, 4.0], srate, nfreq)[1:]
 	amp_thresholds = extend_list([6**2,5**2], len(mbins))
 	single_threshold = 0.55
-	white_scale = extend_list([0.00, 0.25, 0.50, 1.00], len(bins))
+	white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
 
 	# Ok, compute our modes, and then measure them in each bin
 	vecs = find_modes_jon(ft, mbins, amp_thresholds, single_threshold)
 	E, V, Nu, Nd = [], [], [], []
 	for bi, b in enumerate(bins):
-		d    = ft[:,b[0]:b[1]]
+		nmax = 500
+		d    = ft[:,b[0]:b[1]:max(1,(b[1]-b[0])/nmax)]
 		amps = vecs.T.dot(d)
 		E.append(np.mean(np.abs(amps)**2,1))
 		# Project out modes for every frequency individually
@@ -135,8 +136,9 @@ def detvecs_jon(ft, srate, dets=None):
 		Nu.append(np.mean(np.abs(dclean)**2,1)/white_scale[bi])
 		Nd.append(np.mean(np.abs(d)**2,1))
 		V.append(vecs)
+	res = prepare_detvecs(Nu, V, E, bins, srate, dets)
+	return res
 
-	return prepare_detvecs(Nu, V, E, bins, srate, dets)
 
 def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets):
 	D = np.asarray(D)
@@ -148,7 +150,8 @@ def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets):
 	E, V = np.hstack(Elist), np.hstack(Vlist).T
 	return nmat.NmatDetvecs(D, V, E, fbins, vbins, dets)
 
-def measure_cov(d):
+def measure_cov(d, nmax=5000):
+	d = d[:,::max(1,d.shape[1]/nmax)]
 	(n,m) = d.shape
 	step  = 1000
 	res = np.zeros((n,n))

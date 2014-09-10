@@ -2,6 +2,7 @@ import numpy as np, re, bunch, shlex, datetime, pipes
 from enlib import filedb
 
 def pat_fixed(id, args): return args[0]
+def pat_flat(id, args):  return "%s/%s%s" % (args[0], id, "".join(args[1:]))
 def pat_slice(id, args): return "%s/%s/%s%s" % (args[0], eval("id"+args[1]), id, "".join(args[2:]))
 def pat_date(id, args):
 	timestamp = int(id[:id.index(".")])
@@ -11,6 +12,7 @@ def pat_date(id, args):
 
 patterns = {
 		"fixed": pat_fixed,
+		"flat":  pat_flat,
 		"slice": pat_slice,
 		"date":  pat_date,
 	}
