@@ -24,9 +24,10 @@ you could do
 """
 import numpy as np, enlib.slice
 from enact import files, filters
-from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat
+from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config
 from bunch import Bunch # use a simple bunch for now
 
+config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None):
 		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
@@ -58,8 +59,11 @@ class ACTScan(scan.Scan):
 		d = read(self.entry, subdets=self.subdets)
 		calibrate(d)
 		tod = d.tod
+		method = config.get("downsample_method")
 		for s in self.sampslices:
-			tod = enlib.slice.slice_downgrade(tod, s)
+			tod = resample.resample(tod, 1.0/np.abs(s.step or 1), method=method)
+			s = slice(s.start, s.stop, np.sign(s.step) if s.step else None)
+			tod = tod[:,s]
 		return np.ascontiguousarray(tod)
 	def __repr__(self):
 		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.entry.id)
