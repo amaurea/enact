@@ -1,10 +1,8 @@
 """This module provides low-level access to the actpol TOD metadata files."""
-import ast, numpy as np, enlib.rangelist, re, logging
+import ast, numpy as np, enlib.rangelist, re
 from bunch import Bunch
 from enlib.utils import lines
 from enlib.zgetdata import dirfile
-
-L = logging.getLogger(__name__)
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
