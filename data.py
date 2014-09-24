@@ -22,10 +22,12 @@ you could do
  a = simulate(...)
  process(a)
 """
-import numpy as np, enlib.slice
+import numpy as np, logging
 from enact import files, filters
 from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config
 from bunch import Bunch # use a simple bunch for now
+
+L = logging.getLogger(__name__)
 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 class ACTScan(scan.Scan):
@@ -56,15 +58,24 @@ class ACTScan(scan.Scan):
 	def get_samples(self):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
+		L.debug("get_samples A")
 		d = read(self.entry, subdets=self.subdets)
+		L.debug("get_samples B")
 		calibrate(d)
+		L.debug("get_samples C")
 		tod = d.tod
+		L.debug("get_samples D")
 		method = config.get("downsample_method")
 		for s in self.sampslices:
 			tod = resample.resample(tod, 1.0/np.abs(s.step or 1), method=method)
+			L.debug("get_samples E")
 			s = slice(s.start, s.stop, np.sign(s.step) if s.step else None)
+			L.debug("get_samples F")
 			tod = tod[:,s]
-		return np.ascontiguousarray(tod)
+			L.debug("get_samples G")
+		res = np.ascontiguousarray(tod)
+		L.debug("get_samples H")
+		return res
 	def __repr__(self):
 		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.entry.id)
 	def __getitem__(self, sel):
@@ -88,6 +99,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			if entry[key] is None:
 				raise errors.DataMissing("Missing %s in entry for %s" % (key,entry.id))
 	res, dets = Bunch(entry=entry), Bunch()
+	L.debug("read A")
 	try:
 		# Perform all the scary read operations
 		if "gain" in fields:
@@ -96,29 +108,37 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			mask = np.isfinite(res.gain)*(res.gain != 0)
 			dets.gain, res.gain = dets.gain[mask], res.gain[mask]
 			res.gain *= files.read_gain_correction(entry.gain_correction)[entry.id]
+		L.debug("read B")
 		if "polangle" in fields:
 			reading = "plangle"
 			dets.polangle, res.polangle = files.read_polangle(entry.polangle)
+		L.debug("read C")
 		if "tconst" in fields:
 			reading = "tconst"
 			dets.tau,  res.tau = files.read_tconst(entry.tconst)
+		L.debug("read D")
 		if "cut" in fields:
 			reading = "cut"
 			dets.cut, res.cut, res.sample_offset = files.read_cut(entry.cut)
+		L.debug("read E")
 		if "point_offsets" in fields:
 			reading = "point_offsets"
 			dets.point_offset, res.point_offset  = files.read_point_template(entry.point_template)
 			res.point_offset += files.read_point_offsets(entry.point_offsets)[entry.id]
+		L.debug("read F")
 		if "site" in fields:
 			reading = "site"
 			res.site = files.read_site(entry.site)
+		L.debug("read G")
 		if "noise" in fields:
 			reading = "noise"
 			res.noise  = nmat.read_nmat(entry.noise)
 			dets.noise = res.noise.dets
+		L.debug("read H")
 	except IOError  as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
 	# Restrict to common set of ids
+	L.debug("read I")
 	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
 	for key in dets:
 		I = inds[key]
@@ -130,13 +150,17 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		res[key]  = res[key][I]
 		dets[key] = np.array(dets[key])[I]
 	dets = dets.values()[0]
+	L.debug("read J")
 	# Then get the boresight and time-ordered data
 	try:
 		with zgetdata.dirfile(entry.tod) as dfile:
+			L.debug("read K")
 			if "boresight" in fields:
 				res.boresight, res.flags = files.read_boresight(dfile)
+			L.debug("read I")
 			if "tod" in fields:
 				dets, res.tod = files.read_tod(dfile, dets)
+			L.debug("read J")
 	except zgetdata.OpenError as e:
 		raise errors.DataMissing(e.message + "[%s]" % entry.id)
 	res.dets = dets

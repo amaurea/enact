@@ -1,8 +1,10 @@
 """This module provides low-level access to the actpol TOD metadata files."""
-import ast, numpy as np, enlib.rangelist, re
+import ast, numpy as np, enlib.rangelist, re, logging
 from bunch import Bunch
 from enlib.utils import lines
 from enlib.zgetdata import dirfile
+
+L = logging.getLogger(__name__)
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -118,10 +120,11 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 	rowcol = ids if ids.ndim == 2 else np.asarray(mapping(ids))
 	def read(dfile, rowcol):
 		nsamp = dfile.spf("tesdatar%02dc%02d" % tuple(rowcol[:,0]))*dfile.nframes
-		res   = np.empty([rowcol.shape[1],nsamp],dtype=int)
+		res   = np.empty([rowcol.shape[1],nsamp],dtype=np.int32)
 		for i, (r,c) in enumerate(rowcol.T):
 			# The four lowest bits are status flags
 			res[i] = dfile.getdata("tesdatar%02dc%02d" % (r,c)) >> 4
+			dfile.raw_close()
 		return res
 	if isinstance(fname, basestring):
 		with dirfile(fname) as dfile:
@@ -133,7 +136,10 @@ def read_boresight(fname):
 	"""Given a filename or dirfile, reads the timestamp, azimuth, elevation and
 	encoder flags for the telescope's boresight. No deglitching or other corrections
 	are performed. Returns [unix time,az (deg),el(deg)], flags."""
-	def read(dfile): return np.array([dfile.getdata("C_Time"),dfile.getdata("Enc_Az_Deg_Astro"),dfile.getdata("Enc_El_Deg")]), dfile.getdata("enc_flags")
+	def read(dfile):
+		res = np.array([dfile.getdata("C_Time"),dfile.getdata("Enc_Az_Deg_Astro"),dfile.getdata("Enc_El_Deg")]), dfile.getdata("enc_flags")
+		dfile.raw_close()
+		return res
 	if isinstance(fname, basestring):
 		with dirfile(fname) as dfile:
 			return read(dfile)
