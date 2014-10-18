@@ -13,7 +13,7 @@ extractors = {
 	"date":   lambda id: ts2date(id2ts(id), -9),
 }
 
-class ACTdb(filedb.FormatDB):
+class ACTFiles(filedb.FormatDB):
 	def __init__(self, file=None, data=None):
 		filedb.FormatDB.__init__(self, file=file, data=data, funcs=extractors)
 
@@ -35,7 +35,7 @@ patterns = {
 		"date":  pat_date,
 	}
 
-class ACTdb_old(filedb.Basedb):
+class ACTdb(filedb.Basedb):
 	def load(self, data):
 		self.rules = []
 		for line in data.splitlines():
