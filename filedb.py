@@ -40,8 +40,8 @@ class ACTdb(filedb.Basedb):
 		self.rules = []
 		for line in data.splitlines():
 			if len(line) < 1 or line[0] == "#": continue
-			toks = shlex.split(line)
-			name, pattern, args = toks[0][:-1], toks[1], toks[2:]
+			toks = filedb.pre_split(line)
+			name, pattern, args = toks[0], toks[1], toks[2:]
 			fun = patterns[pattern]
 			self.rules.append({"name":name, "pattern":pattern, "fun":fun, "args":args})
 	def dump(self):
