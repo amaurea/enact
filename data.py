@@ -167,13 +167,16 @@ def calibrate(data):
 		for b in data.boresight:
 			gapfill.gapfill_linear(b, bad, inplace=True)
 		data.srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
+	
+	# Correct nsamp in cuts, which may be incorrect
+	for r in data.cut.data: r.n = nsamp
 
 	# Truncate to a fourier-friendly length. This may cost up to about 1% of
 	# the data. This is most naturally done here because
 	#  1. We need to fft when calibrating the tod
 	#  2. The desloping needs to be done on the final array.
 	# A disadvantage is that data.cut will have a different
-	# length it is the only thing read, compared to if it is
+	# length if is the only thing read, compared to if it is
 	# read together with tod, boresight or flags. This is because
 	# cuts does not know the length of the data. We could mitigate
 	# this by truncating at the end rather than beginning. But the
