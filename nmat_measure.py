@@ -135,7 +135,6 @@ def detvecs_jon(ft, srate, dets=None):
 		# The rest is assumed to be uncorrelated
 		Nu.append(np.mean(np.abs(dclean)**2,1)/white_scale[bi])
 		Nd.append(np.mean(np.abs(d)**2,1))
-		di = np.where(dets==20)[0]
 		V.append(vecs)
 	res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
