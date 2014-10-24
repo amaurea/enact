@@ -7,7 +7,7 @@ def ts2date(timestamp, tzone):
 
 extractors = {
 	"id":     lambda id: id,
-	"ar":     lambda id: id[-3:],
+	"ar":     lambda id: id[-1],
 	"season": lambda id: 1 if id2ts(id) < 1390000000 else 2,
 	"t5":     lambda id: id[:5],
 	"date":   lambda id: ts2date(id2ts(id), -9),
