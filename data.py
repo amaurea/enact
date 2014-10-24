@@ -128,7 +128,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		# Restrict to user-chosen subset. NOTE: This is based on indices
 		# into the set that would normally be accepted, not raw detector
 		# values!
-		if subdets != None: I = I[subdets]
+		if subdets is not None: I = I[subdets]
 		res[key]  = res[key][I]
 		dets[key] = np.array(dets[key])[I]
 	dets = dets.values()[0]
