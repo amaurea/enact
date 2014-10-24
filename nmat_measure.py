@@ -135,6 +135,7 @@ def detvecs_jon(ft, srate, dets=None):
 		# The rest is assumed to be uncorrelated
 		Nu.append(np.mean(np.abs(dclean)**2,1)/white_scale[bi])
 		Nd.append(np.mean(np.abs(d)**2,1))
+		di = np.where(dets==20)[0]
 		V.append(vecs)
 	res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
@@ -163,7 +164,7 @@ def project_out(d, modes): return d-modes.T.dot(modes.dot(d))
 def measure_power(d): return np.real(np.mean(d*np.conj(d),-1))
 
 def makebins(edge_freqs, srate, nfreq):
-	binds  = (np.asarray(edge_freqs)/srate*nfreq).astype(int)
+	binds  = (np.asarray(edge_freqs)/(srate/2.0)*nfreq).astype(int)
 	return np.array([np.concatenate([[0],binds]),np.concatenate([binds,[nfreq]])]).T
 
 def project_out_from_matrix(A, V):

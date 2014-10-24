@@ -106,6 +106,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		if "cut" in fields:
 			reading = "cut"
 			dets.cut, res.cut, res.sample_offset = files.read_cut(entry.cut)
+			res.cutafter = res.sample_offset + res.cut[0].n
 		if "point_offsets" in fields:
 			reading = "point_offsets"
 			dets.point_offset, res.point_offset  = files.read_point_template(entry.point_template)
@@ -141,6 +142,10 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	except zgetdata.OpenError as e:
 		raise errors.DataMissing(e.message + "[%s]" % entry.id)
 	res.dets = dets
+	# Fill in default sample offset if missing
+	if "sample_offset" not in res:
+		res.sample_offset = 0
+		res.cutafter = min([res[a].shape[-1] for a in ["tod","boresight","flags"] if a in res])+res_sample_offset
 	return res
 
 def calibrate(data):
@@ -149,13 +154,13 @@ def calibrate(data):
 	etc. Note: This function changes its argument."""
 	# Apply the sample offset
 	if "tod" in data:
-		data.tod = data.tod[:,data.sample_offset:]
+		data.tod = data.tod[:,data.sample_offset:data.cutafter]
 		nsamp = data.tod.shape[1]
 	if "boresight" in data:
-		data.boresight = data.boresight[:,data.sample_offset:]
+		data.boresight = data.boresight[:,data.sample_offset:data.cutafter]
 		nsamp = data.boresight.shape[1]
 	if "flags" in data:
-		data.flags = data.flags[data.sample_offset:]
+		data.flags = data.flags[data.sample_offset:data.cutafter]
 		nsamp = data.flags.shape[0]
 
 	# Smooth over gaps in the encoder values and convert to radians
@@ -167,9 +172,6 @@ def calibrate(data):
 		for b in data.boresight:
 			gapfill.gapfill_linear(b, bad, inplace=True)
 		data.srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
-	
-	# Correct nsamp in cuts, which may be incorrect
-	for r in data.cut.data: r.n = nsamp
 
 	# Truncate to a fourier-friendly length. This may cost up to about 1% of
 	# the data. This is most naturally done here because
@@ -182,13 +184,11 @@ def calibrate(data):
 	# this by truncating at the end rather than beginning. But the
 	# beginning has more systematic errors, so it is the best one
 	# to remove.
-	try:
-		nsamp = fft.fft_len(nsamp)
-		if "tod"       in data: data.tod       = data.tod[:,-nsamp:]
-		if "boresight" in data: data.boresight = data.boresight[:,-nsamp:]
-		if "flags"     in data: data.flags     = data.flags[-nsamp:]
-		if "cut"       in data: data.cut       = data.cut[:,-nsamp:]
-	except NameError: pass
+	nsamp = fft.fft_len(nsamp)
+	if "tod"       in data: data.tod       = data.tod[:,-nsamp:]
+	if "boresight" in data: data.boresight = data.boresight[:,-nsamp:]
+	if "flags"     in data: data.flags     = data.flags[-nsamp:]
+	if "cut"       in data: data.cut       = data.cut[:,-nsamp:]
 
 	# Apply gain, make sure cut regions are reasonably well-behaved,
 	# and make it fourier-friendly by removing a slope.
