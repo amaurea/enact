@@ -106,7 +106,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		if "cut" in fields:
 			reading = "cut"
 			dets.cut, res.cut, res.sample_offset = files.read_cut(entry.cut)
-			res.cutafter = res.sample_offset + res.cut[0].n
+			res.cutafter = res.sample_offset + res.cut[0].n if len(dets.cut) > 0 else 0
 		if "point_offsets" in fields:
 			reading = "point_offsets"
 			dets.point_offset, res.point_offset  = files.read_point_template(entry.point_template)
