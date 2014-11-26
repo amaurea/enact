@@ -41,9 +41,11 @@ class ACTScan(scan.Scan):
 		self.offsets[:,1:] = d.point_offset
 		self.cut       = d.cut.copy()
 		self.comps     = np.zeros([ndet,4])
+		# negative U component because this is the top row of a positive
+		# rotation matrix [[c,-s],[s,c]].
 		self.comps[:,0] = 1
-		self.comps[:,1] = np.cos(2*d.polangle)
-		self.comps[:,2] = np.sin(2*d.polangle)
+		self.comps[:,1] = np.cos(+2*d.polangle)
+		self.comps[:,2] = np.sin(-2*d.polangle)
 		self.comps[:,3] = 0
 		self.dets  = d.dets
 		self.sys = "hor"
