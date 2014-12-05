@@ -102,7 +102,7 @@ def detvecs_simple(fourier, srate, dets=None):
 	E = np.zeros([nbin,0])
 	return prepare_detvecs(Nd, V, E, bins_power, srate, dets)
 
-def detvecs_jon(ft, srate, dets=None):
+def detvecs_jon(ft, srate, dets=None, shared=False):
 	nfreq  = ft.shape[1]
 	# Construct our frequency bins
 	bins = makebins([
@@ -124,7 +124,9 @@ def detvecs_jon(ft, srate, dets=None):
 
 	# Ok, compute our modes, and then measure them in each bin
 	vecs = find_modes_jon(ft, mbins, amp_thresholds, single_threshold)
+	print "found %d vecs" % vecs.shape[1]
 	E, V, Nu, Nd = [], [], [], []
+	vinds = []
 	for bi, b in enumerate(bins):
 		nmax = 500
 		d    = ft[:,b[0]:b[1]:max(1,(b[1]-b[0])/nmax)]
@@ -136,7 +138,11 @@ def detvecs_jon(ft, srate, dets=None):
 		Nu.append(np.mean(np.abs(dclean)**2,1)/white_scale[bi])
 		Nd.append(np.mean(np.abs(d)**2,1))
 		V.append(vecs)
-	res = prepare_detvecs(Nu, V, E, bins, srate, dets)
+		vinds.append(0)
+	if shared:
+		res = prepare_sharedvecs(Nu, V[:1], E, bins, srate, dets, vinds)
+	else:
+		res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
 
 
@@ -145,10 +151,22 @@ def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets):
 	if dets is None: dets = np.arange(D.shape[1])
 	assert len(dets) == D.shape[1]
 	fbins = ibins*(srate/2)/ibins[-1,-1]
-	vtmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in Elist]))])
-	vbins= np.array([vtmp[0:-1],vtmp[1:]]).T
+	etmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in Elist]))])
+	ebins= np.array([etmp[0:-1],etmp[1:]]).T
 	E, V = np.hstack(Elist), np.hstack(Vlist).T
-	return nmat.NmatDetvecs(D, V, E, fbins, vbins, dets)
+	return nmat.NmatDetvecs(D, V, E, fbins, ebins, dets)
+
+def prepare_sharedvecs(D, Vlist, Elist, ibins, srate, dets, vinds):
+	D = np.asarray(D)
+	if dets is None: dets = np.arange(D.shape[1])
+	assert len(dets) == D.shape[1]
+	fbins = ibins*(srate/2)/ibins[-1,-1]
+	etmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in Elist]))])
+	ebins= np.array([etmp[0:-1],etmp[1:]]).T
+	vtmp = np.concatenate([[0],np.cumsum(np.array([len(v) for v in Vlist]))])
+	vbins= np.array([vtmp[i:i+2] for i in vinds])
+	E, V = np.hstack(Elist), np.hstack(Vlist).T
+	return nmat.NmatSharedvecs(D, V, E, fbins, ebins, vbins, dets)
 
 def measure_cov(d, nmax=5000):
 	d = d[:,::max(1,d.shape[1]/nmax)]
