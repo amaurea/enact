@@ -245,12 +245,12 @@ def calibrate(data):
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
 	if "point_offset" in data:
-		data.point_offset = offset_to_radec(data.point_offset, data.boresight[1:,0])
+		data.point_offset = offset_to_dazel(data.point_offset, data.boresight[1:,0])
 
 	# We operate in-place, but return for good measure
 	return data
 
-def offset_to_radec(offs, azel):
+def offset_to_dazel(offs, azel):
 	az, el = azel
 	dx, dy = offs.T
 	dz = np.sqrt(1-dx**2-dy**2)
@@ -259,6 +259,15 @@ def offset_to_radec(offs, azel):
 	dEl = np.arcsin(y2)-el
 	dAz = np.arctan2(dx, z2)
 	return np.array((dAz,dEl)).T
+
+def dazel_to_offset(dazel, azel):
+	az, el = azel
+	da, de = dazel.T
+	y2 = np.sin(el+de)
+	dx = np.sin(da)*np.cos(el+de)
+	z2 = dx/np.tan(da)
+	dy = y2*np.cos(el)-z2*np.sin(el)
+	return np.array((dx,dy)).T
 
 def srate_mask(t, tolerance=400*10.0):
 	"""Returns a boolean array indicating which samples
