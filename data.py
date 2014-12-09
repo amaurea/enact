@@ -22,12 +22,48 @@ you could do
  a = simulate(...)
  process(a)
 """
+
+# How to handle noise
+#
+# Having to regenerate noise files all the times is
+# tedious, and does not extend well to signal extracted
+# noise estimation since different input maps are needed for
+# different tods. Generating a noise file takes about 10
+# seconds for reading the tod and 10 seconds for the analysis,
+# so precomputing does not save much time for the actual
+# map-making.
+#
+# We will therefore do the following.
+# 1. A configuration parameter specifies the noise model,
+#    which can be "file", "jon", etc.
+#    a) If file is specified, the value found in the filedb is used.
+#    b) Otherwise, a noise model is generated in "calibrate"
+# 2. If we want to do signal subtraction, that must be handled
+#    elsewhere, where one knows more about the signal. In this
+#    case the calling code may wish to indicate that no noise
+#    estimation should be done, so as to avoid wasting time
+#    computing an unnecessary model. We handle this using
+#    the nonoise argument.
+# A problem with this approach is that the noise model only can be
+# estimated when tod samples are read. That means that the full
+# TOD will need to be read in the ACTScan constructor, and then
+# discarded only to be read again in get_samples() later. Not
+# exactly optimal. On the other hand, the same thing effectively
+# happens when running tod2nmat followed by tod2map.
+#
+# Perhaps a better approach is to simply run tod2nmat only on
+# the set of files one actually cares about as a pre-run before
+# tod2map. But then one needs a convenient way of specifying
+# the location of these new files to tod2map. The current system
+# requires one to edit a filedb.
+
 import numpy as np
 from enact import files, filters
 from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config
 from bunch import Bunch # use a simple bunch for now
 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
+#config.default("noise_model", "file", "Which noise model to use. Can be 'file' to read from the files indicated by the filedb, or the name of a specific noise mode such as 'jon'")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None):
 		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
