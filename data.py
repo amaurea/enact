@@ -252,7 +252,7 @@ def calibrate(data):
 
 def offset_to_dazel(offs, azel):
 	az, el = azel
-	dx, dy = offs.T
+	dx, dy = np.asarray(offs).T
 	dz = np.sqrt(1-dx**2-dy**2)
 	y2 = dz*np.sin(el)+dy*np.cos(el)
 	z2 = dz*np.cos(el)-dy*np.sin(el)
@@ -262,7 +262,7 @@ def offset_to_dazel(offs, azel):
 
 def dazel_to_offset(dazel, azel):
 	az, el = azel
-	da, de = dazel.T
+	da, de = np.asarray(dazel).T
 	y2 = np.sin(el+de)
 	dx = np.sin(da)*np.cos(el+de)
 	z2 = dx/np.tan(da)
