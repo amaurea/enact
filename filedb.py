@@ -2,8 +2,8 @@ import numpy as np, re, bunch, shlex, datetime, pipes
 from enlib import filedb
 
 def id2ts(id): return int(id[:id.index(".")])
-def ts2date(timestamp, tzone):
-	return datetime.datetime.utcfromtimestamp(timestamp+tzone*3600).strftime("%Y-%m-%d")
+def ts2date(timestamp, tzone, fmt="%Y-%m-%d"):
+	return datetime.datetime.utcfromtimestamp(timestamp+tzone*3600).strftime(fmt)
 
 extractors = {
 	"id":     lambda id: id,
@@ -12,6 +12,9 @@ extractors = {
 	"t5":     lambda id: id[:5],
 	"t":      lambda id: id[:id.index(".")],
 	"date":   lambda id: ts2date(id2ts(id), -9),
+	"year":   lambda id: ts2date(id2ts(id), -9, "%Y"),
+	"month":  lambda id: ts2date(id2ts(id), -9, "%m"),
+	"day":    lambda id: ts2date(id2ts(id), -9, "%d"),
 }
 
 class ACTFiles(filedb.FormatDB):

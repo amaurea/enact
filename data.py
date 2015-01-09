@@ -143,7 +143,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			dets.tau,  res.tau = files.read_tconst(entry.tconst)
 		if "cut" in fields:
 			reading = "cut"
-			dets.cut, res.cut, res.sample_offset = files.read_cut(entry.cut)
+			dets.cut, res.cut, res.sample_offset = get_cuts([entry.cut])
 			res.cutafter = res.sample_offset + res.cut[0].n if len(dets.cut) > 0 else 0
 		if "point_offsets" in fields:
 			reading = "point_offsets"
@@ -280,3 +280,11 @@ def srate_mask(t, tolerance=400*10.0):
 	# Build constant srate model and flag too large deviations
 	tmodel  = np.arange(t.size)*dt+t0
 	return np.abs(t-tmodel)>dt*tolerance
+
+def get_cuts(fnames):
+	for fname in fnames:
+		try:
+			return files.read_cut(fname)
+		except IOError:
+			continue
+	raise IOError(str(fnames))

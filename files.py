@@ -26,7 +26,10 @@ def read_polangle(fname):
 	for line in lines(fname):
 		if line.startswith("#"): continue
 		toks = line.split()
-		id, ang = int(toks[0]), float(toks[3])*np.pi/180
+		if len(toks) > 2:
+			id, ang = int(toks[0]), float(toks[3])*np.pi/180
+		else:
+			id, ang = int(toks[0]), float(toks[1])*np.pi/180
 		if ang < 0: continue
 		ids.append(id)
 		res.append(ang)
