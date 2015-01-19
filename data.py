@@ -222,11 +222,13 @@ def calibrate(data):
 	# this by truncating at the end rather than beginning. But the
 	# beginning has more systematic errors, so it is the best one
 	# to remove.
+	# Cutting the start was too error prone when the different arrays
+	# can have different length. So went for cutting the end after all.
 	nsamp = fft.fft_len(nsamp)
-	if "tod"       in data: data.tod       = data.tod[:,-nsamp:]
-	if "boresight" in data: data.boresight = data.boresight[:,-nsamp:]
-	if "flags"     in data: data.flags     = data.flags[-nsamp:]
-	if "cut"       in data: data.cut       = data.cut[:,-nsamp:]
+	if "tod"       in data: data.tod       = data.tod[:,:nsamp]
+	if "boresight" in data: data.boresight = data.boresight[:,:nsamp]
+	if "flags"     in data: data.flags     = data.flags[:nsamp]
+	if "cut"       in data: data.cut       = data.cut[:,:nsamp]
 
 	# Apply gain, make sure cut regions are reasonably well-behaved,
 	# and make it fourier-friendly by removing a slope.
