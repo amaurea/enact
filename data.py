@@ -58,7 +58,7 @@ you could do
 # requires one to edit a filedb.
 
 import numpy as np
-from enact import files, filters
+from enact import files, filters, cuts
 from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config
 from bunch import Bunch # use a simple bunch for now
 
@@ -249,6 +249,8 @@ def calibrate(data):
 	if "point_offset" in data:
 		data.point_offset = offset_to_dazel(data.point_offset, data.boresight[1:,0])
 
+	apply_extra_cuts(data)
+
 	# We operate in-place, but return for good measure
 	return data
 
@@ -290,3 +292,13 @@ def get_cuts(fnames):
 		except IOError:
 			continue
 	raise IOError(str(fnames))
+
+config.default("cut_turnaround", False, "Whether to apply the internal turnaround cut")
+config.default("cut_ground",     False, "Whether to apply the internal ground cut")
+def apply_extra_cuts(data, do_turnaround=None, do_ground=None):
+	c = data.cut
+	if config.get("cut_turnaround", do_turnaround):
+		c = c + cuts.turnaround_cut(data.boresight[0], data.boresight[1])
+	if config.get("cut_ground", do_ground):
+		c = c + cuts.ground_cut(data.boresight, data.point_offset)
+	data.cut = c
