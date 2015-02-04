@@ -27,6 +27,7 @@ Here are some examples in the context of actpol analysis
  8. deep6,el>50,pwv<1        all deep6 files with el > 50 degrees and pwv < 1 mm
  9. deep6,pwv<2:pwv[0/2]     the lowest half of the files with pwv < 2 mm for deep6"""
 import shlex, numpy as np
+from enlib import utils
 
 class TODDB:
 	def __init__(self, filespec, restrict_status=True):
@@ -147,6 +148,12 @@ def query_db(db, query):
 				inds = inds[a*n/b:(a+1)*n/b]
 			except ValueError:
 				# Fall back on full format
-				inds = eval("inds"+s)
+				inds = eval("inds["+s+"]")
 		db = db.select_inds(inds)
 	return db
+
+def get_tods(selector, dbfile):
+	try:
+		return utils.read_lines(selector)
+	except IOError:
+		return TODDB(dbfile)[selector].ids
