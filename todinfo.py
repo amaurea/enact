@@ -86,8 +86,10 @@ class TODDB:
 			res.fields[k] = res.fields[k][inds]
 		res.tags = res.tags[inds]
 		return res
-	def select_tag(self, tag):
-		return self.select_inds([i for i,tags in enumerate(self.tags) if tag in tags])
+	def select_tags(self, tags):
+		try: tags = set(tags)
+		except TypeError: tags = set([tags])
+		return self.select_inds([i for i,otags in enumerate(self.tags) if tags & otags])
 	def query(self, q): return query_db(self, q)
 	def __getitem__(self, q): return self.query(q)
 	def __repr__(self):
@@ -129,8 +131,7 @@ def query_db(db, query):
 				# Copy to avoid having __builtins__ being inserted into fields
 				db = db.select_inds(np.where(eval(tagexpr, db.fields.copy()))[0])
 			except NameError:
-				for tag in tagexpr.split("+"):
-					db = db.select_tag(tag)
+				db = db.select_tags(tagexpr.split("+"))
 	if rest:
 		try:
 			i = rest.index("[")
