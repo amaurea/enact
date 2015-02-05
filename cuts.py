@@ -38,3 +38,15 @@ def ground_cut(bore, det_offs, az_ranges=None, el_ranges=None):
 			mask_el |= utils.between_angles(p[1], er)
 		cuts.append(rangelist.Rangelist(mask_az&mask_el))
 	return rangelist.Multirange(cuts)
+
+def test_cut(bore, frac=0.3, dfrac=0.05):
+	b  = bore[1:]
+	db = np.median(np.abs(b[:,1:]-b[:,:-1]),1)
+	si = np.argmax(db)
+	r  = [np.min(b[si]),np.max(b[si])]
+	w  = r[1]-r[0]
+	c0 = r[0]+w*frac
+	c  = [c0-w*dfrac,c0+w*dfrac]
+	bad = (b[si]>=c[0])&(b[si]<c[1])
+	if si == 1: bad[...] = False
+	return rangelist.Rangelist(bad)
