@@ -124,6 +124,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False):
 
 	# Ok, compute our modes, and then measure them in each bin
 	vecs = find_modes_jon(ft, mbins, amp_thresholds, single_threshold)
+	assert vecs.size > 0, "Could not find any noise modes!"
 	E, V, Nu, Nd = [], [], [], []
 	vinds = []
 	for bi, b in enumerate(bins):

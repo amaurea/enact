@@ -249,7 +249,7 @@ def calibrate(data):
 	if "point_offset" in data:
 		data.point_offset = offset_to_dazel(data.point_offset, data.boresight[1:,0])
 
-	apply_extra_cuts(data)
+	#apply_extra_cuts(data)
 
 	# We operate in-place, but return for good measure
 	return data
