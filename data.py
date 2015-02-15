@@ -301,4 +301,5 @@ def apply_extra_cuts(data, do_turnaround=None, do_ground=None):
 		c = c + cuts.turnaround_cut(data.boresight[0], data.boresight[1])
 	if config.get("cut_ground", do_ground):
 		c = c + cuts.ground_cut(data.boresight, data.point_offset)
+	#c = c + cuts.test_cut(data.boresight)
 	data.cut = c
