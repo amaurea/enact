@@ -28,6 +28,11 @@ Here are some examples in the context of actpol analysis
  9. deep6,pwv<2:pwv[0/2]     the lowest half of the files with pwv < 2 mm for deep6"""
 import shlex, numpy as np
 from enlib import utils
+from bunch import Bunch
+
+class TODinfo:
+	def __repr__(self):
+		return "TODinfo(fields="+ str(self.fields) + ", tags=" + str(self.tags) + ")"
 
 class TODDB:
 	def __init__(self, filespec, restrict_status=True):
@@ -91,7 +96,16 @@ class TODDB:
 		except TypeError: tags = set([tags])
 		return self.select_inds([i for i,otags in enumerate(self.tags) if tags & otags])
 	def query(self, q): return query_db(self, q)
-	def __getitem__(self, q): return self.query(q)
+	def __getitem__(self, q):
+		if isinstance(q, (int,long)):
+			res = TODinfo()
+			res.fields = Bunch()
+			for f in self.fields:
+				res.fields[f] = self.fields[f][q]
+			res.tags = self.tags[q]
+			return res
+		else:
+			return self.query(q)
 	def __repr__(self):
 		lines = []
 		nmax = 100
@@ -106,6 +120,9 @@ class TODDB:
 			for i in range(self.n-n2, self.n):
 				lines.append(pline(i))
 		return "\n".join(lines)
+	def __iter__(self):
+		for i in xrange(self.n):
+			yield self[i]
 
 def parse_todinfofile(fname):
 	res  = {}
@@ -123,14 +140,16 @@ def parse_todinfofile(fname):
 	return res
 
 def query_db(db, query):
+	if query is None: return db # Null query returns unmodified db
 	toks = query.split(":")
+	if len(toks) == 0: return db # Empty selection returns unmofified db
 	taglist, rest = toks[0], ":".join(toks[1:])
 	if taglist:
 		for tagexpr in taglist.split(","):
 			try:
 				# Copy to avoid having __builtins__ being inserted into fields
 				db = db.select_inds(np.where(eval(tagexpr, db.fields.copy()))[0])
-			except NameError:
+			except (NameError, AttributeError):
 				db = db.select_tags(tagexpr.split("+"))
 	if rest:
 		try:
