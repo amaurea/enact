@@ -1,5 +1,6 @@
 import numpy as np, re, bunch, shlex, datetime, pipes
-from enlib import filedb
+from enlib import filedb, config
+from enact.todinfo import TODDB
 
 def id2ts(id): return int(id[:id.index(".")])
 def ts2date(timestamp, tzone, fmt="%Y-%m-%d"):
@@ -21,44 +22,12 @@ class ACTFiles(filedb.FormatDB):
 	def __init__(self, file=None, data=None):
 		filedb.FormatDB.__init__(self, file=file, data=data, funcs=extractors)
 
-# Old version below
-
-def pat_fixed(id, args): return args[0]
-def pat_flat(id, args):  return "%s/%s%s" % (args[0], id, "".join(args[1:]))
-def pat_slice(id, args): return "%s/%s/%s%s" % (args[0], eval("id"+args[1]), id, "".join(args[2:]))
-def pat_date(id, args):
-	timestamp = int(id[:id.index(".")])
-	tzone     = int(args[1])
-	date      = datetime.datetime.utcfromtimestamp(timestamp+tzone*3600).strftime("%Y-%m-%d")
-	return "%s/%s/%s%s" % (args[0], date, id, "".join(args[2:]))
-
-patterns = {
-		"fixed": pat_fixed,
-		"flat":  pat_flat,
-		"slice": pat_slice,
-		"date":  pat_date,
-	}
-
-class ACTdb(filedb.Basedb):
-	def load(self, data):
-		self.rules = []
-		for line in data.splitlines():
-			if len(line) < 1 or line[0] == "#": continue
-			toks = filedb.pre_split(line)
-			name, pattern, args = toks[0], toks[1], toks[2:]
-			fun = patterns[pattern]
-			self.rules.append({"name":name, "pattern":pattern, "fun":fun, "args":args})
-	def dump(self):
-		lines = []
-		for rule in self.rules:
-			line = "%s: %s" % (rule["name"], rule["pattern"])
-			for arg in rule["args"]:
-				line += " " + pipes.quote(arg)
-			lines.append(line)
-		return "\n".join(lines)
-	def __getitem__(self, id):
-		res = bunch.Bunch()
-		for rule in self.rules:
-			res[rule["name"]] = rule["fun"](id, rule["args"])
-		res.id = id
-		return res
+# Try to set up default databases. This is optional, and the databases
+# will be none if it fails
+config.default("filedb", "filedb.txt", "File describing the location of the TOD and their metadata")
+config.default("todinfo", "todinfo.txt","File describing location of the TOD id lists")
+config.init()
+try: scans = TODDB(config.get("todinfo"))
+except IOError: scans = None
+try: data  = ACTFiles(config.get("filedb"))
+except IOError: data  = None
