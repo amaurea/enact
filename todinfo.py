@@ -26,9 +26,13 @@ Here are some examples in the context of actpol analysis
  7. deep6,night              all night-time deep6 data. Night is an automatic tag based on the hour field
  8. deep6,el>50,pwv<1        all deep6 files with el > 50 degrees and pwv < 1 mm
  9. deep6,pwv<2:pwv[0/2]     the lowest half of the files with pwv < 2 mm for deep6"""
-import shlex, numpy as np
+import shlex, numpy as np, hashlib
 from enlib import utils
 from bunch import Bunch
+
+def id2hash(id):
+	toks = id.split(".")
+	return hashlib.md5(toks[0]).hexdigest() + "." + toks[-1]
 
 class TODinfo:
 	def __repr__(self):
@@ -74,6 +78,7 @@ class TODDB:
 				self.fields[k] = np.array(self.fields[k])
 			# Extra fields
 			self.fields["t"] = np.array([float(v[:v.index(".")]) for v in self.fields["id"]])
+			self.fields["hash"] = np.array([id2hash(v) for v in self.fields["id"]])
 			self.tags = np.array(self.tags)
 			# Sort by t by default
 			inds = np.argsort(self.fields["t"])
