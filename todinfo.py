@@ -60,7 +60,7 @@ class TODDB:
 				filespec = parse_todinfofile(filespec)
 			fieldnames = ["id","hour","el","az","pwv","status"]
 			fieldtypes = [str,float,float,float,float,int]
-			self.fields = {n:[] for n in fieldnames}
+			self.fields = Bunch({n:[] for n in fieldnames})
 			self.tags = []
 			for fname, ftags in filespec.items():
 				ftags = set(ftags)
@@ -79,6 +79,8 @@ class TODDB:
 			# Extra fields
 			self.fields["t"] = np.array([float(v[:v.index(".")]) for v in self.fields["id"]])
 			self.fields["hash"] = np.array([id2hash(v) for v in self.fields["id"]])
+			self.fields["mjd"] = utils.ctime2mjd(self.fields["t"])
+			self.fields["jon"] = calc_jon_day(self.fields["t"])
 			self.tags = np.array(self.tags)
 			# Sort by t by default
 			inds = np.argsort(self.fields["t"])
@@ -153,7 +155,10 @@ def query_db(db, query):
 		for tagexpr in taglist.split(","):
 			try:
 				# Copy to avoid having __builtins__ being inserted into fields
-				db = db.select_inds(np.where(eval(tagexpr, db.fields.copy()))[0])
+				locs = np.__dict__.copy()
+				locs["int"] = np.int0
+				locs["float"] = np.float_
+				db = db.select_inds(np.where(eval(tagexpr, db.fields.copy(), locs))[0])
 			except (NameError, AttributeError):
 				db = db.select_tags(tagexpr.split("+"))
 	if rest:
@@ -176,6 +181,16 @@ def query_db(db, query):
 				inds = eval("inds["+s+"]")
 		db = db.select_inds(inds)
 	return db
+
+def calc_jon_day(ctime):
+	secs = np.sort(ctime%86400)
+	gaps = secs[1:]-secs[:-1]
+	i = np.argmax(gaps)
+	if secs[0]+86400-secs[-1] > gaps[i]:
+		cut = 0
+	else:
+		cut = 0.5*(secs[i]+secs[i+1])
+	return (ctime-cut)/86400
 
 def get_tods(selector, dbfile):
 	try:
