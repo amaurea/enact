@@ -111,10 +111,10 @@ class TODDB:
 			return res
 		else:
 			return self.query(q)
-	def __repr__(self):
+	def __str__(self): return self.__repr__(100)
+	def __repr__(self, nmax=None):
 		lines = []
-		nmax = 100
-		n1, n2 = (self.n, 0) if self.n <= nmax else (nmax/4, nmax/4)
+		n1, n2 = (self.n, 0) if not nmax or self.n <= nmax else (nmax/4, nmax/4)
 		def pline(i):
 			line = "%s %5.2f %5.2f %5.2f %5.2f %d" % tuple([self.fields[k][i] for k in ["id","hour","el","az","pwv","status"]])
 			return line + " " + " ".join(sorted(list(self.tags[i])))
