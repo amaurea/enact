@@ -71,7 +71,7 @@ class ACTScan(scan.Scan):
 		ndet = d.polangle.size
 		# Necessary components for Scan interface
 		self.mjd0      = utils.ctime2mjd(d.boresight[0,0])
-		self.boresight = np.ascontiguousarray(d.boresight.T.copy())
+		self.boresight = np.ascontiguousarray(d.boresight.T.copy()) # [nsamp,{t,az,el}]
 		self.boresight[:,0] -= self.boresight[0,0]
 		self.offsets   = np.zeros([ndet,self.boresight.shape[1]])
 		self.offsets[:,1:] = d.point_offset
