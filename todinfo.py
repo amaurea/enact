@@ -73,7 +73,7 @@ class TODDB:
 							self.fields[n].append(typ(v))
 						# Automatically computed tags
 						dn = "night" if self.fields["hour"][-1] < 11 else "day"
-						self.tags.append(ftags | set([dn]))
+						self.tags.append(ftags | set([dn,self.fields["id"][-1]]))
 			for k in self.fields.keys():
 				self.fields[k] = np.array(self.fields[k])
 			# Extra fields
