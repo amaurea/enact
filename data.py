@@ -112,7 +112,7 @@ class ACTScan(scan.Scan):
 		res.subdets = res.subdets[detslice]
 		return res
 
-def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None):
+def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None, absdets=None):
 	"""Given a filedb entry, reads all the data associated with the
 	fields specified (default: ["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]).
 	Only detectors for which all the information is present will be
@@ -158,7 +158,11 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			dets.noise = res.noise.dets
 	except IOError  as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
-	# Restrict to common set of ids
+	# Restrict to common set of ids. If absdets is specified, then
+	# restrict to detectors mentioned there.
+	if absdets is not None:
+		dets.absdets = absdets
+		res.absdets = np.arange(len(absdets))
 	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
 	for key in dets:
 		I = inds[key]
