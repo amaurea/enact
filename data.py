@@ -65,9 +65,10 @@ from bunch import Bunch # use a simple bunch for now
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 #config.default("noise_model", "file", "Which noise model to use. Can be 'file' to read from the files indicated by the filedb, or the name of a specific noise mode such as 'jon'")
 class ACTScan(scan.Scan):
-	def __init__(self, entry, subdets=None):
-		d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
-		calibrate(d)
+	def __init__(self, entry, subdets=None, d=None):
+		if d is None:
+			d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
+			calibrate(d)
 		ndet = d.polangle.size
 		# Necessary components for Scan interface
 		self.mjd0      = utils.ctime2mjd(d.boresight[0,0])
