@@ -39,7 +39,7 @@ def read_tconst(fname):
 	"""Reads time constants from file, discarding those marked bad.
 	Returns format id,val"""
 	res  = np.loadtxt(fname).T
-	good = res[2]==0 if len(res) > 2 else res[1] != 0
+	good = res[1]>0
 	res  = res[:2,good]
 	return res[0].astype(int), res[1]
 

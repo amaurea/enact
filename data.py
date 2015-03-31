@@ -191,7 +191,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		res.cutafter = min([res[a].shape[-1] for a in ["tod","boresight","flags"] if a in res])+res_sample_offset
 	return res
 
-def calibrate(data):
+def calibrate(data, nofft=False):
 	"""Prepares the data (in the format returned from data.read) for
 	general consumption by applying calibration factors, deglitching,
 	etc. Note: This function changes its argument."""
@@ -243,12 +243,13 @@ def calibrate(data):
 		utils.deslope(data.tod, w=8, inplace=True)
 
 		# Unapply instrument filters
-		ft     = fft.rfft(data.tod)
-		freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
-		butter = filters.butterworth_filter(freqs)
-		for di in range(len(ft)):
-			ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
-		fft.irfft(ft, data.tod, normalize=True)
+		if not nofft:
+			ft     = fft.rfft(data.tod)
+			freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
+			butter = filters.butterworth_filter(freqs)
+			for di in range(len(ft)):
+				ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
+			fft.irfft(ft, data.tod, normalize=True)
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
 	if "point_offset" in data:
