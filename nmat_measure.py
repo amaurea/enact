@@ -207,3 +207,19 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0):
 	return vecs
 
 def extend_list(a, n): return a + [a[-1]]*(n-len(a))
+
+def detvecs_joint(ft, srate, dets=None, nbin=100, samp_min=50, samp_max=1000, maxmodes=15, mineig=0.005):
+	ndet, nfreq = ft.shape
+	fmax = srate/2
+	# First define our bins. We want at least samp_min and at most_samp_max samples
+	# per bin. Too few, and we can't measure the covariance accurately. Too many, and we lose
+	# resolution.
+	bins = enlib.bins(nfreq, nbin, samp_min, samp_max)
+	# For each bin, measure the covariance and decompe it into detvecs
+	params = []
+	for bi, b in enumerate(bins):
+		d   = ft[:,b[0]:b[1]]
+		cov = measure_cov(d)
+		params.append(decomp_DVEV(cov, nmax=min(maxmodes,d.shape[1]/10), mineig=mineig))
+	D,E,V = map(list, zip(*params))
+	return prepare_detvecs(D, V, E, bins, srate, dets)
