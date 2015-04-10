@@ -23,11 +23,12 @@ class ACTFiles(filedb.FormatDB):
 		filedb.FormatDB.__init__(self, file=file, data=data, funcs=extractors)
 
 # Try to set up default databases. This is optional, and the databases
-# will be none if it fails
+# will be none if it fails.
 config.default("filedb", "filedb.txt", "File describing the location of the TOD and their metadata")
 config.default("todinfo", "todinfo.txt","File describing location of the TOD id lists")
 config.init()
-try: scans = TODDB(config.get("todinfo"))
-except IOError: scans = None
-try: data  = ACTFiles(config.get("filedb"))
-except IOError: data  = None
+
+def init():
+	global scans, data
+	scans = TODDB(config.get("todinfo"))
+	data  = ACTFiles(config.get("filedb"))

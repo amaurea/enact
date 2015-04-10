@@ -113,7 +113,7 @@ class ACTScan(scan.Scan):
 		res.subdets = res.subdets[detslice]
 		return res
 
-def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None):
+def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None, absdets=None):
 	"""Given a filedb entry, reads all the data associated with the
 	fields specified (default: ["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]).
 	Only detectors for which all the information is present will be
@@ -159,7 +159,11 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			dets.noise = res.noise.dets
 	except IOError  as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
-	# Restrict to common set of ids
+	# Restrict to common set of ids. If absdets is specified, then
+	# restrict to detectors mentioned there.
+	if absdets is not None:
+		dets.absdets = absdets
+		res.absdets = np.arange(len(absdets))
 	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
 	for key in dets:
 		I = inds[key]
@@ -187,7 +191,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		res.cutafter = min([res[a].shape[-1] for a in ["tod","boresight","flags"] if a in res])+res_sample_offset
 	return res
 
-def calibrate(data):
+def calibrate(data, nofft=False):
 	"""Prepares the data (in the format returned from data.read) for
 	general consumption by applying calibration factors, deglitching,
 	etc. Note: This function changes its argument."""
@@ -239,12 +243,13 @@ def calibrate(data):
 		utils.deslope(data.tod, w=8, inplace=True)
 
 		# Unapply instrument filters
-		ft     = fft.rfft(data.tod)
-		freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
-		butter = filters.butterworth_filter(freqs)
-		for di in range(len(ft)):
-			ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
-		fft.irfft(ft, data.tod, normalize=True)
+		if not nofft:
+			ft     = fft.rfft(data.tod)
+			freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
+			butter = filters.butterworth_filter(freqs)
+			for di in range(len(ft)):
+				ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
+			fft.irfft(ft, data.tod, normalize=True)
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
 	if "point_offset" in data:
