@@ -148,6 +148,13 @@ def read_boresight(fname):
 	else:
 		return read(fname)
 
+def read_spikes(fname):
+	"""Given a filename, reads the start, end and amplitude of the spikes described
+	in the file. Spikes without start/end are ignored."""
+	a = np.loadtxt(fname).T
+	good = a[5] != 0
+	return a[:,good][[4,5,2]]
+
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""

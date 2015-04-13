@@ -157,6 +157,9 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			reading = "noise"
 			res.noise  = nmat.read_nmat(entry.noise)
 			dets.noise = res.noise.dets
+		if "spikes" in fields:
+			reading = "spikes"
+			res.spikes = files.read_spikes(entry.spikes)
 	except IOError  as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
 	# Restrict to common set of ids. If absdets is specified, then
