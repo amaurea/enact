@@ -155,6 +155,16 @@ def read_spikes(fname):
 	good = a[5] != 0
 	return a[:,good][[4,5,2]]
 
+def read_noise_cut(fname):
+	"""Given a filename, reads the set of detectors to cut for each tod,
+	returning it as a dictionary of id:detlist."""
+	res = {}
+	for line in lines(fname):
+		if line[0] == '#': continue
+		toks = line.split()
+		res[toks[0]] = np.array([int(w) for w in toks[2:]],dtype=np.int32)
+	return res
+
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""

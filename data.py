@@ -157,6 +157,10 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			reading = "noise"
 			res.noise  = nmat.read_nmat(entry.noise)
 			dets.noise = res.noise.dets
+		if "noise_cut" in fields:
+			reading = "noise_cut"
+			dets.noise_cut = files.read_noise_cut(entry.noise_cut)[entry.id]
+			res.noise_cut = np.arange(len(dets.noise_cut)) # dummy
 		if "spikes" in fields:
 			reading = "spikes"
 			res.spikes = files.read_spikes(entry.spikes)
