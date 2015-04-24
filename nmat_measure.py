@@ -1,5 +1,5 @@
 import numpy as np, scipy as sp, enlib.bins, time, enlib.bins
-from enlib import nmat, utils
+from enlib import nmat, utils,array_ops
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated
@@ -28,80 +28,7 @@ from enlib import nmat, utils
 # to numpy's ffts, this means dividing the fourier
 # array by sqrt(n).
 
-def detvecs_old(fourier, srate, dets=None):
-	ndet, nfreq = fourier.shape
-	# Use bins with exponential spacing
-	bins = enlib.bins.expbin(nfreq, nbin=100, nmin=10)
-	nbin = bins.shape[0]
-	# This may seem very arbitrary, but has shown itself to
-	# work very well, and much better than the more advanced
-	# mode selection I attempted.
-	maxmodes = 3
-
-	V, E = [], []
-	Nd, Nu = np.zeros([nbin,ndet]), np.zeros([nbin,ndet])
-	for bi, b in enumerate(bins):
-		# What we actually measure
-		bft = fourier[:,b[0]:b[1]]
-		cov = measure_cov(bft)
-		var = np.diag(cov)
-		corr = cov/(var[:,None]*var[None,:])**0.5
-		Nd[bi] = var
-		# Dealing with the whole correlation matrix
-		# is too expensive. We need a compressed version.
-		# Keep eigenmodes that are significant, up to at most
-		# maxmodes eigenmodes. Given N hits per cell in the covmat,
-		# the corr will be wishart distributed
-		# with stddev (1/N*(corr**2+1))**0.5
-		e,v        = np.linalg.eigh(corr)
-		# sort by eigenvalue
-		inds = np.argsort(e)[::-1]
-		e, v = e[inds], v[:,inds]
-		corr_var   = (corr**2+1)/(b[1]-b[0])
-		sigma_e    = np.sum(v*corr_var.dot(v),0)**0.5
-
-		detectable = e > 3*sigma_e
-		e,v = e[detectable], v[:,detectable]
-		e,v = e[:maxmodes],  v[:,:maxmodes]
-
-		# Rescale so that these apply to the covmat rather
-		# than corr matrix, to save some computation
-		# when using the model.
-		vcov = v*var[:,None]**0.5
-		norm = np.sum(vcov**2,0)
-		vcov/= norm[None,:]**0.5
-		ecov = e*norm
-		# We will represent the noise as (Nu + Nc)
-		# (uncorrelated noise + correlated noise)
-		# Nc is represented by V and E. Nu is what
-		# extra variance is left in Nd. We impose a maximum
-		# correlation of 0.9999 by adding a bit more noise.
-		# This will make us downweigh the low frequencies
-		# slightly too much, but avoids rounding errors
-		# and unrealistically low levels of uncorrelated
-		# noise.
-		Nu[bi] = Nd[bi] - np.minimum(np.sum(vcov**2*ecov[None,:],1), Nd[bi]*0.9999)
-
-		V.append(vcov)
-		E.append(ecov)
-
-	return prepare_detvecs(Nu, V, E, bins, srate, dets)
-
-def detvecs_simple(fourier, srate, dets=None):
-	nfreq = fourier.shape[1]
-	ndet  = fourier.shape[0]
-
-	bins_power = enlib.bins.expbin(nfreq, nbin=100, nmin=10)
-	nbin  = bins_power.shape[0] # expbin may not provide exactly what we want
-	Nd = np.empty((nbin,ndet))
-
-	for bi, b in enumerate(bins_power):
-		d     = fourier[:,b[0]:b[1]]
-		Nd[bi] = measure_power(d)
-	V = [np.full([ndet,0],1)]*nbin
-	E = [np.full([0],1e-10)]*nbin
-	return prepare_detvecs(Nd, V, E, bins_power, srate, dets)
-
+# Our main noise model
 def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the fourier-transform of a TOD, srate is the sampling rate,
@@ -161,13 +88,111 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 		res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
 
+def detvecs_simple(fourier, srate, dets=None):
+	nfreq = fourier.shape[1]
+	ndet  = fourier.shape[0]
+
+	bins_power = enlib.bins.expbin(nfreq, nbin=100, nmin=10)
+	nbin  = bins_power.shape[0] # expbin may not provide exactly what we want
+	Nd = np.empty((nbin,ndet))
+
+	for bi, b in enumerate(bins_power):
+		d     = fourier[:,b[0]:b[1]]
+		Nd[bi] = measure_power(d)
+	V = [np.full([ndet,0],1)]*nbin
+	E = [np.full([0],1e-10)]*nbin
+	return prepare_detvecs(Nd, V, E, bins_power, srate, dets)
+
+# This one should have been better than Jon's model, but simulations
+# show that nmat=build(sqrt(C)r1); nmat.apply(Cr2) is whiter for his
+# model than this one.
+def detvecs_joint(ft, srate, dets=None, cut_bins=None, nbin=50, samp_min=75, samp_max=2000, maxmodes=15, mineig=0.005):
+	ndet, nfreq = ft.shape
+	cut_bins = freq2ind(cut_bins, srate, nfreq)
+	mask     = bins2mask(cut_bins, nfreq)
+	# First define our bins. We want at least samp_min and at most_samp_max samples
+	# per bin. Too few, and we can't measure the covariance accurately. Too many, and we lose
+	# resolution.
+	bins = enlib.bins.expbin(nfreq, nbin, samp_min, samp_max)
+	# For each bin, measure the covariance and decompe it into detvecs
+	params = []
+	for bi, b in enumerate(bins):
+		dm  = mask[b[0]:b[1]]
+		# Mask cut bins unless that would remove all samples in this bin
+		d = ft[:,b[0]:b[1]]
+		if np.any(dm) > 1: d = d[:,dm]
+		cov = measure_cov(d)
+		params.append(nmat.decomp_DVEV(cov, nmax=min(maxmodes,d.shape[1]/20), mineig=mineig))
+	D,E,V = map(list, zip(*params))
+	# Split into cut and uncut regions
+	if cut_bins is not None:
+		bins, E, V, D = apply_bin_cuts(bins, cut_bins, E, V, D)
+	return prepare_detvecs(D, V, E, bins, srate, dets)
+
+def detvecs_bigjoint(ft, srate, dets=None, cut_bins=None, nbin=50, samp_min=50, samp_max=1000, maxmodes=30, mineig=0.001):
+	ndet, nfreq = ft.shape
+	cut_bins = freq2ind(cut_bins, srate, nfreq)
+	mask     = bins2mask(cut_bins, nfreq)
+	# First define our bins. We want at least samp_min and at most_samp_max samples
+	# per bin. Too few, and we can't measure the covariance accurately. Too many, and we lose
+	# resolution.
+	bins = enlib.bins.expbin(nfreq, nbin, samp_min, samp_max)
+	# First measure the overall correlation pattern of the whole thing. We measure corr per bin,
+	# and then take the mean corr. This will avoid giving undue weight to the atmosphere, which
+	# would otherwise swamp everything
+	C = np.zeros([ndet,ndet])
+	covs = []
+	for b in bins:
+		dm  = mask[b[0]:b[1]]
+		# Mask cut bins unless that would remove all samples in this bin
+		d = ft[:,b[0]:b[1]]
+		if np.any(dm) > 1: d = d[:,dm]
+		cov = measure_cov(ft[:,b[0]:b[1]])
+		C  += cov/np.mean(np.diag(cov))
+		covs.append(cov)
+	# Extract eigenmodes from this (scaled) correlation matrix
+	_,_,V = nmat.decomp_DVEV(C, nmax=maxmodes, mineig=mineig)
+	# Use the highest bin variance as a proxy for the uncorrelated noise
+	Dapprox = np.diag(covs[-1])
+	# Then keep V fixed and fit C=D+VEV' for each bin
+	params = []
+	for bi, (b,C) in enumerate(zip(bins,covs)):
+		dm  = mask[b[0]:b[1]]
+		d = ft[:,b[0]:b[1]]
+		if np.any(dm) > 1: d = d[:,dm]
+		D,E = decomp_clean_modes(d, V, Dapprox)
+		params.append((D,E,V))
+	D,E,V = map(list, zip(*params))
+	# Split into cut and uncut regions
+	if cut_bins is not None:
+		bins, E, V, D = apply_bin_cuts(bins, cut_bins, E, V, D)
+	return prepare_detvecs(D, V, E, bins, srate, dets)
+
+def decomp_clean_modes(d, V, D):
+	def getamps(W, V, d):
+		rhs = (V.T*W[None]).dot(d)
+		A   = (V.T*W[None]).dot(V)
+		iA  = array_ops.eigpow(A,-1)
+		return iA.dot(rhs)
+		#return np.linalg.solve(A,rhs)
+	# Solve for the amplitudes of the modes in V per mode
+	#e = getamps(1/D, V, d)
+	e = V.T.dot(d)
+	# Remove from time-stream
+	d2= d-V.dot(e)
+	# Estimate D from the cleaned stream
+	D = np.var(d2,1)
+	# E is the average value of e
+	E = np.mean(np.abs(e)**2,1)
+	return D, E
+
 def apply_bin_cuts(bins, cut_bins, E, V, Nu, vinds=None):
 	# Insert cuts into bins, possibly splitting them.
 	# Will insert uncorrelated infinite noise bins at cut locations.
 	ndet  = Nu[0].size
 	Vcut  = np.zeros([ndet,0])
 	Ecut  = np.zeros([0])
-	Nucut = np.full([ndet],np.inf)
+	Nucut = np.full([ndet],np.max(Nu)*1e6)
 	bsplit, rmap, abmap = utils.range_sub(bins, cut_bins, mapping=True)
 	E2, Nu2, bins2 = [],[],[]
 	# Handle non-correlated part
@@ -196,7 +221,7 @@ def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets):
 	D = np.asarray(D)
 	if dets is None: dets = np.arange(D.shape[1])
 	assert len(dets) == D.shape[1]
-	fbins = ibins*(srate/2)/ibins[-1,-1]
+	fbins = ibins*(srate/2.)/ibins[-1,-1]
 	etmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in Elist]))])
 	ebins= np.array([etmp[0:-1],etmp[1:]]).T
 	E, V = np.hstack(Elist), np.hstack(Vlist).T
@@ -211,7 +236,7 @@ def prepare_sharedvecs(D, Vlist, Elist, ibins, srate, dets, vinds):
 	D = np.asarray(D)
 	if dets is None: dets = np.arange(D.shape[1])
 	assert len(dets) == D.shape[1]
-	fbins = ibins*(srate/2)/ibins[-1,-1]
+	fbins = ibins*(srate/2.)/ibins[-1,-1]
 	etmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in Elist]))])
 	ebins= np.array([etmp[0:-1],etmp[1:]]).T
 	vtmp = np.concatenate([[0],np.cumsum(np.array([len(v.T) for v in Vlist]))])
@@ -219,14 +244,18 @@ def prepare_sharedvecs(D, Vlist, Elist, ibins, srate, dets, vinds):
 	E, V = np.hstack(Elist), np.hstack(Vlist).T
 	return nmat.NmatSharedvecs(D, V, E, fbins, ebins, vbins, dets)
 
+def mycontiguous(a):
+	b = np.zeros(a.shape, a.dtype)
+	b[...] = a[...]
+	return b
+
 def measure_cov(d, nmax=10000):
 	d = d[:,::max(1,d.shape[1]/nmax)]
-	(n,m) = d.shape
-	step  = 1000
+	n,m = d.shape
+	step  = 10000
 	res = np.zeros((n,n))
-	t = time.time()
 	for i in range(0,m,step):
-		sub = np.ascontiguousarray(d[:,i:i+step])
+		sub = mycontiguous(d[:,i:i+step])
 		res += np.real(sub.dot(np.conj(sub.T)))
 	return res/m
 def project_out(d, modes): return d-modes.T.dot(modes.dot(d))
@@ -277,25 +306,3 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None)
 	return vecs
 
 def extend_list(a, n): return a + [a[-1]]*(n-len(a))
-
-def detvecs_joint(ft, srate, dets=None, cut_bins=None, nbin=100, samp_min=50, samp_max=1000, maxmodes=15, mineig=0.005):
-	ndet, nfreq = ft.shape
-	cut_bins = freq2ind(cut_bins, srate, nfreq)
-	mask     = bins2mask(cut_bins, nfreq)
-	# First define our bins. We want at least samp_min and at most_samp_max samples
-	# per bin. Too few, and we can't measure the covariance accurately. Too many, and we lose
-	# resolution.
-	bins = enlib.bins.expbin(nfreq, nbin, samp_min, samp_max)
-	# For each bin, measure the covariance and decompe it into detvecs
-	params = []
-	for bi, b in enumerate(bins):
-		dm  = mask[b[0]:b[1]]
-		# Mask cut bins unless that would remove all samples in this bin
-		d = ft[:,b[0]:b[1]]
-		if np.any(dm) > 1: d = d[:,dm]
-		cov = measure_cov(d)
-		params.append(decomp_DVEV(cov, nmax=min(maxmodes,d.shape[1]/10), mineig=mineig))
-	D,E,V = map(list, zip(*params))
-	# Split into cut and uncut regions
-	bins, E, V, D = apply_bin_cuts(bins, cut_bins, E, V, D)
-	return prepare_detvecs(D, V, E, bins, srate, dets)
