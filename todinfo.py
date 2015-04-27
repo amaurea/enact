@@ -183,9 +183,11 @@ def query_db(db, query):
 	return db
 
 def calc_jon_day(ctime):
+	"""Computes the days since beginning using Jon's
+	method. This places the day boundary at the time-of-day
+	with the lowest number of scans."""
 	secs = np.sort(ctime%86400)
-	if len(ctime == 0): return ctime.astype(bool)
-	elif len(ctime == 1): return secs/3600>11
+	if len(ctime) < 0: return np.zeros(len(ctime))
 	gaps = secs[1:]-secs[:-1]
 	i = np.argmax(gaps)
 	if secs[0]+86400-secs[-1] > gaps[i]:
