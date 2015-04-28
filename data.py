@@ -98,6 +98,7 @@ class ACTScan(scan.Scan):
 		d = read(self.entry, subdets=self.subdets)
 		calibrate(d)
 		tod = d.tod
+		del d.tod
 		method = config.get("downsample_method")
 		for s in self.sampslices:
 			tod = resample.resample(tod, 1.0/np.abs(s.step or 1), method=method)
@@ -257,6 +258,7 @@ def calibrate(data, nofft=False):
 			for di in range(len(ft)):
 				ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
 			fft.irfft(ft, data.tod, normalize=True)
+			del ft
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
 	if "point_offset" in data:
