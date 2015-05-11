@@ -196,8 +196,8 @@ def calc_jon_day(ctime):
 		cut = 0.5*(secs[i]+secs[i+1])
 	return (ctime-cut)/86400
 
-def get_tods(selector, dbfile):
+def get_tods(selector, db):
 	try:
 		return utils.read_lines(selector)
 	except IOError:
-		return TODDB(dbfile)[selector].ids
+		return db[selector].ids

@@ -1,4 +1,4 @@
-import numpy as np, re, bunch, shlex, datetime, pipes
+import numpy as np, re, bunch, shlex, datetime, pipes, os
 from enlib import filedb, config
 from enact.todinfo import TODDB
 
@@ -24,11 +24,16 @@ class ACTFiles(filedb.FormatDB):
 
 # Try to set up default databases. This is optional, and the databases
 # will be none if it fails.
-config.default("filedb", "filedb.txt", "File describing the location of the TOD and their metadata")
-config.default("todinfo", "todinfo.txt","File describing location of the TOD id lists")
+config.default("root", ".", "Path to directory where the different metadata sets are")
+config.default("dataset", ".", "Path to data set directory relative to data_root")
+config.default("filedb", "filedb.txt", "File describing the location of the TOD and their metadata. Relative to dataset path.")
+config.default("todinfo", "todinfo.txt","File describing location of the TOD id lists. Relative to dataset path.")
 config.init()
+
+def cjoin(names): return os.path.join(*[config.get(n) for n in names])
 
 def init():
 	global scans, data
-	scans = TODDB(config.get("todinfo"))
-	data  = ACTFiles(config.get("filedb"))
+	print cjoin(["root","dataset","todinfo"])
+	scans = TODDB(cjoin(["root","dataset","todinfo"]))
+	data  = ACTFiles(cjoin(["root","dataset","filedb"]))

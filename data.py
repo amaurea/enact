@@ -58,7 +58,7 @@ you could do
 # requires one to edit a filedb.
 
 import numpy as np
-from enact import files, filters, cuts
+from enact import files, filters
 from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config
 from bunch import Bunch # use a simple bunch for now
 
