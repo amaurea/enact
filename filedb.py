@@ -34,6 +34,5 @@ def cjoin(names): return os.path.join(*[config.get(n) for n in names])
 
 def init():
 	global scans, data
-	print cjoin(["root","dataset","todinfo"])
 	scans = TODDB(cjoin(["root","dataset","todinfo"]))
 	data  = ACTFiles(cjoin(["root","dataset","filedb"]))
