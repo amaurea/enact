@@ -58,9 +58,9 @@ you could do
 # requires one to edit a filedb.
 
 import numpy as np
+from bunch import Bunch
 from enact import files, filters
 from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config
-from bunch import Bunch # use a simple bunch for now
 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 #config.default("noise_model", "file", "Which noise model to use. Can be 'file' to read from the files indicated by the filedb, or the name of a specific noise mode such as 'jon'")

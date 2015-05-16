@@ -39,6 +39,13 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 	nfreq    = ft.shape[1]
 	cut_bins = freq2ind(cut_bins, srate, nfreq)
 	mask     = bins2mask(cut_bins, nfreq)
+	# Construct our mode bins. Interestingly, we skip
+	# the f < 0.25 Hz area.
+	mbins = makebins([0.25, 4.0], srate, nfreq, 1000)[1:]
+	amp_thresholds = extend_list([6**2,5**2], len(mbins))
+	single_threshold = 0.55
+	# Ok, compute our modes, and then measure them in each bin
+	vecs = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask)
 	bins = makebins([
 			0.10, 0.25, 0.35, 0.45, 0.55, 0.70, 0.85, 1.00,
 			1.20, 1.40, 1.70, 2.00, 2.40, 2.80, 3.40, 4.00,
@@ -48,16 +55,8 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 			45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 80.0, 90.0,
 			100., 110., 120., 130., 140., 150., 160., 170.,
 			180., 190.
-		], srate, nfreq)
-	# Construct our mode bins. Interestingly, we skip
-	# the f < 0.25 Hz area.
-	mbins = makebins([0.25, 4.0], srate, nfreq)[1:]
-	amp_thresholds = extend_list([6**2,5**2], len(mbins))
-	single_threshold = 0.55
+		], srate, nfreq, 2*vecs.shape[1])
 	white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
-
-	# Ok, compute our modes, and then measure them in each bin
-	vecs = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask)
 	assert vecs.size > 0, "Could not find any noise modes!"
 	E, V, Nu, Nd = [], [vecs], [], []
 	vinds = []
@@ -265,8 +264,13 @@ def freq2ind(freqs, srate, nfreq):
 	if freqs is None: return freqs
 	return (np.asarray(freqs)/(srate/2.0)*nfreq).astype(int)
 
-def makebins(edge_freqs, srate, nfreq):
+def makebins(edge_freqs, srate, nfreq, nmin=0):
 	binds  = freq2ind(edge_freqs, srate, nfreq)
+	if nmin > 0:
+		binds2 = [binds[0]]
+		for b in binds:
+			if b-binds2[-1] >= nmin: binds2.append(b)
+		binds = binds2
 	return np.array([np.concatenate([[0],binds]),np.concatenate([binds,[nfreq]])]).T
 
 def sample_nmax(d, nmax):
