@@ -262,12 +262,34 @@ def calibrate(data, nofft=False):
 
 	# Convert pointing offsets from focalplane offsets to ra,dec offsets
 	if "point_offset" in data:
-		data.point_offset = offset_to_dazel(data.point_offset, data.boresight[1:,0])
+		data.point_offset = offset_to_dazel(data.point_offset, np.mean(data.boresight[1:,::100],1))
+
+	# Match the Healpix polarization convention
+	if "polangle" in data:
+		data.polangle += np.pi/2
 
 	# We operate in-place, but return for good measure
 	return data
 
 def offset_to_dazel(offs, azel):
+	"""Convert from focalplane offsets to offsets in horizontal coordinates.
+	Corresponds to the rotation Rz(-az)Ry(pi/2-el)Rx(y)Ry(-x). Taken from
+	libactpol. The previous version of this was equivalent in the flat sky
+	limit, but for non-tiny angles deviated by several arcseconds.
+	offs should be [dx,dy] according to the data file ordering, as
+	returned by the files module."""
+	az, el = azel
+	x, y = np.asarray(offs).T
+	# Formula below based on libactpol, which uses opposite
+	# ordering of y and x, so swap
+	y, x = x, y
+	p = [ -np.sin(x), -np.cos(x)*np.sin(y), np.cos(x)*np.cos(y) ]
+	p = [ np.sin(el)*p[0]+np.cos(el)*p[2], p[1], -np.cos(el)*p[0]+np.sin(el)*p[2] ]
+	dEl = np.arcsin(p[2])-el
+	dAz = -np.arctan2(p[1],p[0])
+	return np.array([dAz,dEl]).T
+
+def offset_to_dazel_old(offs, azel):
 	az, el = azel
 	dx, dy = np.asarray(offs).T
 	dz = np.sqrt(1-dx**2-dy**2)
@@ -276,15 +298,15 @@ def offset_to_dazel(offs, azel):
 	dEl = np.arcsin(y2)-el
 	dAz = np.arctan2(dx, z2)
 	return np.array((dAz,dEl)).T
-
-def dazel_to_offset(dazel, azel):
-	az, el = azel
-	da, de = np.asarray(dazel).T
-	y2 = np.sin(el+de)
-	dx = np.sin(da)*np.cos(el+de)
-	z2 = dx/np.tan(da)
-	dy = y2*np.cos(el)-z2*np.sin(el)
-	return np.array((dx,dy)).T
+#
+#def dazel_to_offset(dazel, azel):
+#	az, el = azel
+#	da, de = np.asarray(dazel).T
+#	y2 = np.sin(el+de)
+#	dx = np.sin(da)*np.cos(el+de)
+#	z2 = dx/np.tan(da)
+#	dy = y2*np.cos(el)-z2*np.sin(el)
+#	return np.array((dx,dy)).T
 
 def srate_mask(t, tolerance=400*10.0):
 	"""Returns a boolean array indicating which samples

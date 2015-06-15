@@ -1,4 +1,4 @@
-import numpy as np, scipy as sp, enlib.bins, time, enlib.bins
+import numpy as np, scipy as sp, enlib.bins, time, enlib.bins, h5py
 from enlib import nmat, utils,array_ops
 
 # This is an implementation of the standard ACT noise model,
@@ -31,9 +31,9 @@ from enlib import nmat, utils,array_ops
 # Our main noise model
 def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
-	ft is the fourier-transform of a TOD, srate is the sampling rate,
-	dets is the list of detectors, shared specifies whether the
-	Detvecs object should use the compressed "shared" layout or not",
+	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
+	srate is the sampling rate, dets is the list of detectors, shared specifies
+	whether the Detvecs object should use the compressed "shared" layout or not",
 	and cut_bins is a [nbin,{freq_from,freq_2}] array of frequencies
 	to completely cut."""
 	nfreq    = ft.shape[1]
@@ -55,13 +55,15 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 			45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 80.0, 90.0,
 			100., 110., 120., 130., 140., 150., 160., 170.,
 			180., 190.
-		], srate, nfreq, 2*vecs.shape[1])
+		], srate, nfreq, 2*vecs.shape[1], rfun=np.round)
+
 	white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
 	assert vecs.size > 0, "Could not find any noise modes!"
 	E, V, Nu, Nd = [], [vecs], [], []
 	vinds = []
 	for bi, b in enumerate(bins):
 		nmax = 1000
+		b = np.maximum(1,b)
 		# Set up modes to use
 		dm = mask[b[0]:b[1]]
 		d  = ft[:,b[0]:b[1]]
@@ -260,12 +262,17 @@ def measure_cov(d, nmax=10000):
 def project_out(d, modes): return d-modes.T.dot(modes.dot(d))
 def measure_power(d): return np.real(np.mean(d*np.conj(d),-1))
 
-def freq2ind(freqs, srate, nfreq):
+def freq2ind(freqs, srate, nfreq, rfun=None):
+	"""Returns the index of the first fourier mode with greater than freq
+	frequency, for each freq in freqs."""
 	if freqs is None: return freqs
-	return (np.asarray(freqs)/(srate/2.0)*nfreq).astype(int)
+	if rfun  is None: rfun = np.ceil
+	return rfun(np.asarray(freqs)/(srate/2.0)*nfreq).astype(int)
 
-def makebins(edge_freqs, srate, nfreq, nmin=0):
-	binds  = freq2ind(edge_freqs, srate, nfreq)
+def makebins(edge_freqs, srate, nfreq, nmin=0, rfun=None):
+	binds  = freq2ind(edge_freqs, srate, nfreq, rfun=rfun)
+	if len(edge_freqs)<5:
+		print "makebins", edge_freqs, srate, nfreq, binds
 	if nmin > 0:
 		binds2 = [binds[0]]
 		for b in binds:
@@ -297,7 +304,7 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None)
 		# Ignore frequences in mask
 		dm   = mask[b[0]:b[1]]
 		if np.any(dm): d = d[:,dm]
-		cov  = measure_cov(d)
+		cov  = array_ops.measure_cov(d)
 		cov  = project_out_from_matrix(cov, vecs)
 		e, v = np.linalg.eigh(cov)
 		if amp_thresholds != None:
