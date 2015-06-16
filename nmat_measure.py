@@ -271,8 +271,6 @@ def freq2ind(freqs, srate, nfreq, rfun=None):
 
 def makebins(edge_freqs, srate, nfreq, nmin=0, rfun=None):
 	binds  = freq2ind(edge_freqs, srate, nfreq, rfun=rfun)
-	if len(edge_freqs)<5:
-		print "makebins", edge_freqs, srate, nfreq, binds
 	if nmin > 0:
 		binds2 = [binds[0]]
 		for b in binds:
