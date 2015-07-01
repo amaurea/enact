@@ -134,6 +134,12 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 	else:
 		return ids, read(fname, rowcol)
 
+def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
+	import moby2
+	if ids is None: ids = np.arange(ndet)
+	tod = moby2.scripting.get_tod({'filename': fname, 'det_uid':ids})
+	return ids, tod.data
+
 def read_boresight(fname):
 	"""Given a filename or dirfile, reads the timestamp, azimuth, elevation and
 	encoder flags for the telescope's boresight. No deglitching or other corrections
@@ -147,6 +153,11 @@ def read_boresight(fname):
 			return read(dfile)
 	else:
 		return read(fname)
+
+def read_boresight_moby(fname):
+	import moby2
+	tod = moby2.scripting.get_tod({'filename': fname, 'det_uid':[],'read_data':False})
+	return np.array([tod.ctime, tod.az*180/np.pi, tod.alt*180/np.pi]), tod.enc_flags
 
 def read_spikes(fname):
 	"""Given a filename, reads the start, end and amplitude of the spikes described

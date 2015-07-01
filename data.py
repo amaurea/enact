@@ -60,10 +60,10 @@ you could do
 import numpy as np
 from bunch import Bunch
 from enact import files, filters
-from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config
+from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config, pmat
 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
-#config.default("noise_model", "file", "Which noise model to use. Can be 'file' to read from the files indicated by the filedb, or the name of a specific noise mode such as 'jon'")
+config.default("gapfill", "copy", "TOD gapfill method. Can be 'copy' or 'linear'")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None):
 		if d is None:
@@ -114,7 +114,7 @@ class ACTScan(scan.Scan):
 		res.subdets = res.subdets[detslice]
 		return res
 
-def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None, absdets=None):
+def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None, absdets=None, moby=False):
 	"""Given a filedb entry, reads all the data associated with the
 	fields specified (default: ["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]).
 	Only detectors for which all the information is present will be
@@ -185,11 +185,17 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	dets = dets.values()[0]
 	# Then get the boresight and time-ordered data
 	try:
-		with zgetdata.dirfile(entry.tod) as dfile:
+		if moby:
 			if "boresight" in fields:
-				res.boresight, res.flags = files.read_boresight(dfile)
+				res.boresight, res.flags = files.read_boresight_moby(entry.tod)
 			if "tod" in fields:
-				dets, res.tod = files.read_tod(dfile, dets)
+				dets, res.tod = files.read_tod_moby(entry.tod, dets)
+		else:
+			with zgetdata.dirfile(entry.tod) as dfile:
+				if "boresight" in fields:
+					res.boresight, res.flags = files.read_boresight(dfile)
+				if "tod" in fields:
+					dets, res.tod = files.read_tod(dfile, dets)
 	except zgetdata.OpenError as e:
 		raise errors.DataMissing(e.message + "[%s]" % entry.id)
 	res.dets = dets
@@ -247,8 +253,10 @@ def calibrate(data, nofft=False):
 	# and make it fourier-friendly by removing a slope.
 	if "tod" in data:
 		data.tod = data.tod * data.gain[:,None]
-		gapfill.gapfill_copy(data.tod, data.cut, inplace=True)
+		gapfiller = {"copy":gapfill.gapfill_copy, "linear":gapfill.gapfill_linear}[config.get("gapfill")]
+		gapfiller(data.tod, data.cut, inplace=True)
 		utils.deslope(data.tod, w=8, inplace=True)
+		pmat.apply_window(data.tod, data.srate*config.get("tod_window"))
 
 		# Unapply instrument filters
 		if not nofft:
