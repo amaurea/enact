@@ -304,7 +304,14 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None)
 		if np.any(dm): d = d[:,dm]
 		cov  = array_ops.measure_cov(d)
 		cov  = project_out_from_matrix(cov, vecs)
-		e, v = np.linalg.eigh(cov)
+		# Should use eigh here. Something strange is going on on my
+		# laptop here. Symptoms fit memory corruption. Writing out
+		# cov and reading it in in a separate program and using eigh
+		# there works. But calling it here results in noe eigenvalues
+		# being nan. Should investigate.
+		e, v = np.linalg.eig(cov)
+		e = e.real
+		v = v.real
 		if amp_thresholds != None:
 			good = e > amp_thresholds[bi]*np.median(e)
 			e, v = e[good], v[:,good]
