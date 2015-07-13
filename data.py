@@ -136,6 +136,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			dets.gain, res.gain = files.read_gain(entry.gain)
 			mask = np.isfinite(res.gain)*(res.gain != 0)
 			dets.gain, res.gain = dets.gain[mask], res.gain[mask]
+			reading = "gain correction"
 			res.gain *= files.read_gain_correction(entry.gain_correction)[entry.id]
 		if "polangle" in fields:
 			reading = "plangle"
@@ -150,6 +151,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		if "point_offsets" in fields:
 			reading = "point_offsets"
 			dets.point_offset, res.point_offset  = files.read_point_template(entry.point_template)
+			reading = "point correction"
 			res.point_offset += files.read_point_offsets(entry.point_offsets)[entry.id]
 		if "site" in fields:
 			reading = "site"
@@ -165,8 +167,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		if "spikes" in fields:
 			reading = "spikes"
 			res.spikes = files.read_spikes(entry.spikes)
-	except IOError  as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
-	except KeyError as e: raise errors.DataMissing("Gain correction or pointing offset [%s]" % entry.id)
+	except (IOError, KeyError) as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	# Restrict to common set of ids. If absdets is specified, then
 	# restrict to detectors mentioned there.
 	if absdets is not None:
