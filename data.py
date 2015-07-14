@@ -59,7 +59,7 @@ you could do
 
 import numpy as np
 from bunch import Bunch
-from enact import files, filters
+from enact import files, filters, cuts
 from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config, pmat
 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
@@ -69,6 +69,7 @@ class ACTScan(scan.Scan):
 		if d is None:
 			d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
 			calibrate(d)
+			#autocut(d)
 		ndet = d.polangle.size
 		# Necessary components for Scan interface
 		self.mjd0      = utils.ctime2mjd(d.boresight[0,0])
@@ -279,6 +280,28 @@ def calibrate(data, nofft=False):
 
 	# We operate in-place, but return for good measure
 	return data
+
+config.default("cut_turnaround", False, "Whether to apply the turnaround cut.")
+config.default("cut_ground",     False, "Whether to apply the turnaround cut.")
+config.default("cut_sun",        False, "Whether to apply the sun distance cut.")
+config.default("cut_moon",       False, "Whether to apply the moon distance cut.")
+config.default("cut_sun_dist",      30, "Min distance to Sun in Sun cut.")
+config.default("cut_moon_dist",     30, "Min distance to Moon in Moon cut.")
+config.default("cut_max_frac",     0.5, "Max fraction of TOD to cut.")
+def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None):
+	"""Apply automatic cuts to calibrated data."""
+	if config.get("cut_turnaround", turnaround):
+		d.cut = d.cut + cuts.turnaround_cut(d.boresight[0], d.boresight[1])
+	if config.get("cut_ground", ground):
+		d.cut = d.cut + cuts.ground_cut(d.boresight, d.point_offset)
+	if config.get("cut_sun", sun):
+		d.cut = d.cut + cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Sun", config.get("cut_sun_dist")*np.pi/180)
+	if config.get("cut_moon", moon):
+		d.cut = d.cut + cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180)
+	# What fraction is cut?
+	cut_fraction = float(d.cut.sum())/d.cut.size
+	if config.get("cut_max_frac", max_frac) < cut_fraction:
+		raise errors.DataMissing("Too many cut samples!")
 
 def offset_to_dazel(offs, azel):
 	"""Convert from focalplane offsets to offsets in horizontal coordinates.

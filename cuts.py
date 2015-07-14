@@ -1,5 +1,5 @@
 """This module implements extra, dynamic data cuts for ACT data."""
-import numpy as np
+import numpy as np, time
 from enlib.resample import resample_bin
 from enlib import rangelist, utils, config, coordinates, array_ops
 
@@ -49,17 +49,15 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 	obj_rect = utils.ang2rect(obj_pos, zenith=False)
 	# Only cut if above horizon
 	above_horizon = obj_pos[1]<0
-	above_horizon[:] = True
 	if np.all(~above_horizon): return rangelist.Multirange.empty(det_offs.shape[0], bore.shape[1])
 	cuts = []
 	for di, off in enumerate(det_offs):
 		det_pos  = bore[1:]+off[:,None]
 		#det_rect = utils.ang2rect(det_pos, zenith=False) # slow
-		det_rect = array_ops.ang2rect(det_pos)
+		# Not sure defining an ang2rect in array_ops is worth it.. It's ugly,
+		# (angle convention hard coded) and only gives factor 2 on laptop.
+		det_rect = array_ops.ang2rect(np.ascontiguousarray(det_pos.T)).T
 		cdist = np.sum(obj_rect*det_rect,0)
-		if di == 0:
-			print det_pos, obj_pos
-			print cdist[0], cmargin, above_horizon[0], np.where(above_horizon)
 		# Cut samples above horizon that are too close
 		bad  = (cdist > cmargin) & above_horizon
 		cuts.append(rangelist.Rangelist(bad))
