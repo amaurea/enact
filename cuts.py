@@ -48,12 +48,12 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 	obj_pos  = coordinates.interpol_pos("cel","hor",name_or_pos,mjd,site)
 	obj_rect = utils.ang2rect(obj_pos, zenith=False)
 	# Only cut if above horizon
-	above_horizon = obj_pos[1]<0
+	above_horizon = obj_pos[1]>0
 	if np.all(~above_horizon): return rangelist.Multirange.empty(det_offs.shape[0], bore.shape[1])
 	cuts = []
 	for di, off in enumerate(det_offs):
 		det_pos  = bore[1:]+off[:,None]
-		#det_rect = utils.ang2rect(det_pos, zenith=False) # slow
+		#det_rect1 = utils.ang2rect(det_pos, zenith=False) # slow
 		# Not sure defining an ang2rect in array_ops is worth it.. It's ugly,
 		# (angle convention hard coded) and only gives factor 2 on laptop.
 		det_rect = array_ops.ang2rect(np.ascontiguousarray(det_pos.T)).T

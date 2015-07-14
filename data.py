@@ -69,7 +69,7 @@ class ACTScan(scan.Scan):
 		if d is None:
 			d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
 			calibrate(d)
-			#autocut(d)
+			autocut(d)
 		ndet = d.polangle.size
 		# Necessary components for Scan interface
 		self.mjd0      = utils.ctime2mjd(d.boresight[0,0])
@@ -285,9 +285,9 @@ config.default("cut_turnaround", False, "Whether to apply the turnaround cut.")
 config.default("cut_ground",     False, "Whether to apply the turnaround cut.")
 config.default("cut_sun",        False, "Whether to apply the sun distance cut.")
 config.default("cut_moon",       False, "Whether to apply the moon distance cut.")
-config.default("cut_sun_dist",      30, "Min distance to Sun in Sun cut.")
-config.default("cut_moon_dist",     30, "Min distance to Moon in Moon cut.")
-config.default("cut_max_frac",     0.5, "Max fraction of TOD to cut.")
+config.default("cut_sun_dist",    30.0, "Min distance to Sun in Sun cut.")
+config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
+config.default("cut_max_frac",    0.25, "Max fraction of TOD to cut.")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None):
 	"""Apply automatic cuts to calibrated data."""
 	if config.get("cut_turnaround", turnaround):
