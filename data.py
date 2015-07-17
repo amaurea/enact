@@ -198,8 +198,8 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 					res.boresight, res.flags = files.read_boresight(dfile)
 				if "tod" in fields:
 					dets, res.tod = files.read_tod(dfile, dets)
-	except zgetdata.OpenError as e:
-		raise errors.DataMissing(e.message + "[%s]" % entry.id)
+	except (zgetdata.OpenError,IOError) as e:
+		raise errors.DataMissing("Error opening dirfile: " + e.message + "[%s]" % entry.id)
 	res.dets = dets
 	# Fill in default sample offset if missing
 	if "sample_offset" not in res:
@@ -301,7 +301,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None)
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	if config.get("cut_max_frac", max_frac) < cut_fraction:
-		raise errors.DataMissing("Too many cut samples!")
+		raise errors.DataMissing("Too many cut samples! (%.0f%%)" % (cut_fraction*100))
 
 def offset_to_dazel(offs, azel):
 	"""Convert from focalplane offsets to offsets in horizontal coordinates.

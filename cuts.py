@@ -4,7 +4,7 @@ from enlib.resample import resample_bin
 from enlib import rangelist, utils, config, coordinates, array_ops
 
 config.default("cut_turnaround_step", 20, "Smoothing length for turnaround cut. Pointing will be downsampled by this number before acceleration is computed.")
-config.default("cut_turnaround_lim",   3, "Acceleration threshold for turnaround cut in units of standard deviations of the acceleration.")
+config.default("cut_turnaround_lim",   5, "Acceleration threshold for turnaround cut in units of standard deviations of the acceleration.")
 config.default("cut_turnaround_margin",1, "Margin for turnaround cut in units of the smoothing length. This will be added on each side of the acceleration-masked regions. In units of downsampled samples.")
 def turnaround_cut(t, az, step=None, lim=None, margin=None):
 	"""Cut samples where the telescope is accelerating."""
@@ -14,7 +14,8 @@ def turnaround_cut(t, az, step=None, lim=None, margin=None):
 	t2, az2 = resample_bin(t[:2000], [1.0/step]), resample_bin(az, [1.0/step])
 	dt = np.median(t2[1:]-t2[:-1])
 	ddaz = (az2[2:]+az2[:-2]-2*az2[1:-1])/dt**2
-	mask = np.abs(ddaz) > lim*np.std(ddaz)
+	mask = np.abs(ddaz) > 2*np.std(ddaz)
+	mask = np.abs(ddaz) > lim*np.std(ddaz[~mask])
 	r = utils.mask2range(mask)
 	r[:,0] -= margin
 	r[:,1] += margin
