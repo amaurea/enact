@@ -159,7 +159,10 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			res.site = files.read_site(entry.site)
 		if "noise" in fields:
 			reading = "noise"
-			res.noise  = nmat.read_nmat(entry.noise)
+			try:
+				res.noise = nmat.read_nmat(entry.noise_it2)
+			except (IOError, AttributeError):
+				res.noise = nmat.read_nmat(entry.noise)
 			dets.noise = res.noise.dets
 		if "noise_cut" in fields:
 			reading = "noise_cut"
