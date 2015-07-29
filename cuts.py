@@ -17,8 +17,8 @@ def turnaround_cut(t, az, step=None, lim=None, margin=None):
 	mask = np.abs(ddaz) > 2*np.std(ddaz)
 	mask = np.abs(ddaz) > lim*np.std(ddaz[~mask])
 	r = utils.mask2range(mask)
-	r[:,0] -= margin
-	r[:,1] += margin
+	r[:,0] = np.maximum(0,     r[:,0]-margin)
+	r[:,1] = np.minimum(len(t),r[:,1]+margin)
 	r *= step
 	return rangelist.Rangelist(r, len(t))
 

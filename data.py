@@ -174,20 +174,21 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	except (IOError, KeyError) as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	# Restrict to common set of ids. If absdets is specified, then
 	# restrict to detectors mentioned there.
-	if absdets is not None:
-		dets.absdets = absdets
-		res.absdets = np.arange(len(absdets))
-	inds  = utils.dict_apply_listfun(dets, utils.common_inds)
-	for key in dets:
-		I = inds[key]
-		if len(I) == 0: raise errors.DataMissing("All detectors rejected!")
-		# Restrict to user-chosen subset. NOTE: This is based on indices
-		# into the set that would normally be accepted, not raw detector
-		# values!
-		if subdets is not None: I = I[subdets]
-		res[key]  = res[key][I]
-		dets[key] = np.array(dets[key])[I]
-	dets = dets.values()[0]
+	if len(dets) > 0:
+		if absdets is not None:
+			dets.absdets = absdets
+			res.absdets = np.arange(len(absdets))
+		inds  = utils.dict_apply_listfun(dets, utils.common_inds)
+		for key in dets:
+			I = inds[key]
+			if len(I) == 0: raise errors.DataMissing("All detectors rejected!")
+			# Restrict to user-chosen subset. NOTE: This is based on indices
+			# into the set that would normally be accepted, not raw detector
+			# values!
+			if subdets is not None: I = I[subdets]
+			res[key]  = res[key][I]
+			dets[key] = np.array(dets[key])[I]
+		dets = dets.values()[0]
 	# Then get the boresight and time-ordered data
 	try:
 		if moby:
@@ -207,7 +208,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	# Fill in default sample offset if missing
 	if "sample_offset" not in res:
 		res.sample_offset = 0
-		res.cutafter = min([res[a].shape[-1] for a in ["tod","boresight","flags"] if a in res])+res_sample_offset
+		res.cutafter = min([res[a].shape[-1] for a in ["tod","boresight","flags"] if a in res])+res.sample_offset
 	return res
 
 def calibrate(data, nofft=False):
