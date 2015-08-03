@@ -176,6 +176,17 @@ def read_noise_cut(fname):
 		res[toks[0]] = np.array([int(w) for w in toks[2:]],dtype=np.int32)
 	return res
 
+def read_pickup_cut(fname):
+	"""Given a filename, reads cuts in the pickup cut format
+	id scan_direction hex azpix1 azpix2 az1 az2 strength."""
+	res = {}
+	for line in lines(fname):
+		if line[0] == '#': continue
+		id, dir, hex, ap1, ap2, az1, az2, strength = line.split()
+		if id not in res: res[id] = []
+		res[id].append([int(dir),int(hex),float(az1),float(az2),float(strength)])
+	return res
+
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""

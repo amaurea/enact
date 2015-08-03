@@ -64,6 +64,32 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 		cuts.append(rangelist.Rangelist(bad))
 	return rangelist.Multirange(cuts)
 
+def det2hex(dets, ncol=32):
+	res = []
+	for det in dets:
+		col = det % ncol
+		if   col < 24: hex = col/8
+		elif col < 27: hex = 3
+		elif col < 29: hex = 4
+		else: hex = 5
+		res.append(hex)
+	return np.array(res)
+
+def pickup_cut(az, dets, pcut):
+	"""Cut samples as specified in the pcut struct, which works on hexed per
+	tod per scanning direction."""
+	hex = det2hex(dets)
+	dir = np.concatenate([[0],az[1:]>az[:-1]])
+	res = rangelist.Multirange.empty(len(dets),len(az))
+	for cdir,chex,az1,az2,strength in pcut:
+		myrange  = utils.mask2range((az>=az1)&(az<az2)&(dir==cdir))
+		mycut    = []
+		for h in hex:
+			if h == chex: mycut.append(myrange)
+			else:         mycut.append([])
+		res = res + rangelist.Multirange(mycut)
+	return res
+
 def test_cut(bore, frac=0.3, dfrac=0.05):
 	b  = bore[1:]
 	db = np.median(np.abs(b[:,1:]-b[:,:-1]),1)

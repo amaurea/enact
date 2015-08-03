@@ -149,6 +149,9 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			reading = "cut"
 			dets.cut, res.cut, res.sample_offset = get_cuts([entry.cut])
 			res.cutafter = res.sample_offset + res.cut[0].n if len(dets.cut) > 0 else 0
+			if "pickup_cut" in entry:
+				try: res.pickup_cut = files.read_pickup_cut(entry.pickup_cut)[entry.id]
+				except KeyError: pass
 		if "point_offsets" in fields:
 			reading = "point_offsets"
 			dets.point_offset, res.point_offset  = files.read_point_template(entry.point_template)
@@ -282,6 +285,9 @@ def calibrate(data, nofft=False):
 	if "polangle" in data:
 		data.polangle += np.pi/2
 
+	if "pickup_cut" in data:
+		data.pickup_cut = [[dir,hex,az1*np.pi/180,az2*np.pi/180,strength] for dir,hex,az1,az2,strength in data.pickup_cut]
+
 	# We operate in-place, but return for good measure
 	return data
 
@@ -289,10 +295,11 @@ config.default("cut_turnaround", False, "Whether to apply the turnaround cut.")
 config.default("cut_ground",     False, "Whether to apply the turnaround cut.")
 config.default("cut_sun",        False, "Whether to apply the sun distance cut.")
 config.default("cut_moon",       False, "Whether to apply the moon distance cut.")
+config.default("cut_pickup",     False, "Whether to apply the pickup cut.")
 config.default("cut_sun_dist",    30.0, "Min distance to Sun in Sun cut.")
 config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
 config.default("cut_max_frac",    0.25, "Max fraction of TOD to cut.")
-def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None):
+def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
 	if config.get("cut_turnaround", turnaround):
 		d.cut = d.cut + cuts.turnaround_cut(d.boresight[0], d.boresight[1])
@@ -302,6 +309,8 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None)
 		d.cut = d.cut + cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Sun", config.get("cut_sun_dist")*np.pi/180)
 	if config.get("cut_moon", moon):
 		d.cut = d.cut + cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180)
+	if config.get("cut_pickup", pickup) and "pickup_cut" in d:
+		d.cut = d.cut + cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut)
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	if config.get("cut_max_frac", max_frac) < cut_fraction:
