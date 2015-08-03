@@ -79,14 +79,15 @@ def pickup_cut(az, dets, pcut):
 	"""Cut samples as specified in the pcut struct, which works on hexed per
 	tod per scanning direction."""
 	hex = det2hex(dets)
-	dir = np.concatenate([[0],az[1:]>az[:-1]])
+	dir = np.concatenate([[0],az[1:]<az[:-1]])
 	res = rangelist.Multirange.empty(len(dets),len(az))
 	for cdir,chex,az1,az2,strength in pcut:
-		myrange  = utils.mask2range((az>=az1)&(az<az2)&(dir==cdir))
+		myrange  = rangelist.Rangelist((az>=az1)&(az<az2)&(dir==cdir))
+		uncut    = rangelist.Rangelist.empty(len(az))
 		mycut    = []
 		for h in hex:
 			if h == chex: mycut.append(myrange)
-			else:         mycut.append([])
+			else:         mycut.append(uncut)
 		res = res + rangelist.Multirange(mycut)
 	return res
 
