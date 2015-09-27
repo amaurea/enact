@@ -86,6 +86,7 @@ class ACTScan(scan.Scan):
 		self.comps[:,2] = np.sin(-2*d.polangle)
 		self.comps[:,3] = 0
 		self.dets  = d.dets
+		self.dgrid = (33, 32)
 		self.sys = "hor"
 		self.site = d.site
 		self.noise = d.noise
