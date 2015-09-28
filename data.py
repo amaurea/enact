@@ -86,7 +86,7 @@ class ACTScan(scan.Scan):
 		self.comps[:,2] = np.sin(-2*d.polangle)
 		self.comps[:,3] = 0
 		self.dets  = d.dets
-		self.dgrid = (33, 32)
+		self.dgrid = (d.nrow, d.ncol)
 		self.sys = "hor"
 		self.site = d.site
 		self.noise = d.noise
@@ -213,6 +213,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	if "sample_offset" not in res:
 		res.sample_offset = 0
 		res.cutafter = min([res[a].shape[-1] for a in ["tod","boresight","flags"] if a in res])+res.sample_offset
+	res.nrow, res.ncol = 33, 32
 	return res
 
 def calibrate(data, nofft=False):
