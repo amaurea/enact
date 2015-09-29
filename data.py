@@ -25,49 +25,79 @@ you could do
 
 # How to handle noise
 #
-# Having to regenerate noise files all the times is
-# tedious, and does not extend well to signal extracted
-# noise estimation since different input maps are needed for
-# different tods. Generating a noise file takes about 10
-# seconds for reading the tod and 10 seconds for the analysis,
-# so precomputing does not save much time for the actual
-# map-making.
+# Arguments for on-the-fly noise estimation:
+#  1. Easier, don't have to run tod2nmat
+#  2. Ensures that the noise model uses parameters consistent with the analysis.
+#     For example, filters applied in the mapmaker 
+#  3. Can do automatic two-pass mapmaking instead of pass1 new_noise pass2.
+#     Two-pass mapmaking is currently inconvenient because the second pass needs
+#     to read the noise model from an alternative location.
+#  4. Ar1+ar2 joint-tod analysis is easy to do in this case - just add an alternative
+#     data.read function that calls read for each tod, and builds a combined object.
+#     Then proceed with calibrate etc. as usual. But such a joint noise model would
+#     not fit in the usual framework. It could be stored as id1+id2.hdf, but
+#     then it would need to be read in addition to id1.hdf and id2.hdf if
+#     data.read_multi is supposed to call data.read. If noise models are done
+#     on the fly, these problems don't arise.
+# Arguments against on-the-fly noise estimation
+#  1. Noise estimation takes time, and the noise model can be reused several
+#     times. Currently reading in a TOD takes 15-20 s. Estimating the noise model
+#     takes 5-15 s. So it would slow down loading by a fair amount. But loading
+#     is a small fraction of total time, and it may be possible to optimize
+#     noise model estimation, as ninkasi estimates it pretty quickly.
+#  2. It may be cumbersome to switch between on-the-fly and precomputed noise.
+#     We will still want to be able to exchange noise models, after all.
 #
-# We will therefore do the following.
-# 1. A configuration parameter specifies the noise model,
-#    which can be "file", "jon", etc.
-#    a) If file is specified, the value found in the filedb is used.
-#    b) Otherwise, a noise model is generated in "calibrate"
-# 2. If we want to do signal subtraction, that must be handled
-#    elsewhere, where one knows more about the signal. In this
-#    case the calling code may wish to indicate that no noise
-#    estimation should be done, so as to avoid wasting time
-#    computing an unnecessary model. We handle this using
-#    the nonoise argument.
-# A problem with this approach is that the noise model only can be
-# estimated when tod samples are read. That means that the full
-# TOD will need to be read in the ACTScan constructor, and then
-# discarded only to be read again in get_samples() later. Not
-# exactly optimal. On the other hand, the same thing effectively
-# happens when running tod2nmat followed by tod2map.
-#
-# Perhaps a better approach is to simply run tod2nmat only on
-# the set of files one actually cares about as a pre-run before
-# tod2map. But then one needs a convenient way of specifying
-# the location of these new files to tod2map. The current system
-# requires one to edit a filedb.
+# Where should on-the-fly estimation happen? We read tod-free scans first,
+# and then explicitly read the samples later. Reading the samples is slow,
+# so we only want to do it once. It currently happens in mapmaker.Eqsys.calc_b(),
+# and it is not really feasible for it to happen elsewhere, so that's when the
+# noise estimation needs to happen too. However, calc_b() is supposed to be
+# instrument-agnostic code, so directly calling enact.nmat_measure there is wrong.
+#  1. The Scan object could contain a functor that when applied to the TOD returns
+#     a noise model.
+#  2. Eqsys could be passed an object it should use to produce noise models.
+# *****************************************************************************
+# In all cases, it is problematic that calc_b() needs to happen before anything
+# else here, as I currently produce precons before Eqsys is even initialized,
+# and precons depend on the noise model :( Moving calc_b earlier destroys the
+# nice procedure I have now, where signals, precons, etc are defined first,
+# and then passed fully formed to the equation system object.
+# *****************************************************************************
+# Suggestions:
+#  1. We read in the noise model as normal (so tod2nmat needs
+#     to have been run. But the mapmaker has an option to reestimate the noise.
+#     This would call the .recompute(tod) method of the nmat object, which would
+#     return a new noise model. This would not benefit the preconditioners, but
+#     it would be good enough for iterative mapmaking. The resulting noise model
+#     could also be output and stored for later use when .write is called.
+#  2. Build the filters first, then read the tod, filter and estimate noise model.
+#     Then proceed as usual. This requires reading the TOD twice for each time
+#     the mapmaker is run. Also, the current filter setup sets up postprocessing
+#     at the same time. But this would let the preconditioners make use of the
+#     updated noise model, and would not require tod2nmat to have been run.
+#  3. In data.read, read noise if possible, otherwise set it to a dummy noise
+#     object of the correct type. In tod2nmat, noise estimation is run if
+#     requested or if we have a dummy object.
 
 import numpy as np
 from bunch import Bunch
-from enact import files, filters, cuts
+from enact import files, filters, cuts, nmat_measure
 from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config, pmat
 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 config.default("gapfill", "copy", "TOD gapfill method. Can be 'copy' or 'linear'")
+config.default("noise_model", "file", "Which noise model to use. Can be 'file' or 'jon'")
+config.default("tod_window", 0.0, "Number of samples to window the tod by on each end")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None):
+		self.fields = ["gain","polangle","tconst","cut","point_offsets","boresight","site"]
+		if config.get("noise_model") == "file":
+			self.fields += ["noise"]
+		else:
+			self.fields += ["spikes","noise_cut"]
 		if d is None:
-			d = read(entry, ["gain","polangle","tconst","cut","point_offsets","boresight","site","noise"], subdets=subdets)
+			d = read(entry, self.fields, subdets=subdets)
 			calibrate(d)
 			autocut(d)
 		ndet = d.polangle.size
@@ -89,7 +119,10 @@ class ACTScan(scan.Scan):
 		self.dgrid = (d.nrow, d.ncol)
 		self.sys = "hor"
 		self.site = d.site
-		self.noise = d.noise
+		try:
+			self.noise = d.noise
+		except AttributeError:
+			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), window=d.srate*config.get("tod_window"), spikes=d.spikes[:2].T)
 		# Implementation details
 		self.entry = entry
 		self.subdets = np.arange(ndet)
@@ -97,7 +130,7 @@ class ACTScan(scan.Scan):
 	def get_samples(self):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
-		d = read(self.entry, subdets=self.subdets)
+		d = read(self.entry, self.fields + ["tod"], subdets=self.subdets)
 		calibrate(d)
 		tod = d.tod
 		del d.tod
@@ -267,7 +300,7 @@ def calibrate(data, nofft=False):
 		gapfiller = {"copy":gapfill.gapfill_copy, "linear":gapfill.gapfill_linear}[config.get("gapfill")]
 		gapfiller(data.tod, data.cut, inplace=True)
 		utils.deslope(data.tod, w=8, inplace=True)
-		pmat.apply_window(data.tod, data.srate*config.get("tod_window"))
+		#nmat.apply_window(data.tod, data.srate*config.get("tod_window"))
 
 		# Unapply instrument filters
 		if not nofft:
