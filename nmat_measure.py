@@ -337,10 +337,10 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 			ft = fft.rfft(tod) * tod.shape[1]**-0.5
 			noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes, window=self.window)
 		else:
-			nmat.apply_window(tod, -self.window)
+			nmat.apply_window(tod, self.window, inverse=True)
 			raise ValueError("Unknown noise model '%s'" % self.model)
 		# Undo our windowing of nmat
-		nmat.apply_window(tod, -self.window)
+		nmat.apply_window(tod, self.window, inverse=True)
 		return noise_model
 	def __getitem__(self, sel):
 		# Make sure window gets resized when we downsample
