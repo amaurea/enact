@@ -121,7 +121,8 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 	ids = np.asarray(ids)
 	rowcol = ids if ids.ndim == 2 else np.asarray(mapping(ids))
 	def read(dfile, rowcol):
-		nsamp = dfile.spf("tesdatar%02dc%02d" % tuple(rowcol[:,0]))*dfile.nframes
+		reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
+		nsamp = dfile.spf("tesdatar%02dc%02d" % tuple(reference))*dfile.nframes
 		res   = np.empty([rowcol.shape[1],nsamp],dtype=np.int32)
 		for i, (r,c) in enumerate(rowcol.T):
 			# The four lowest bits are status flags

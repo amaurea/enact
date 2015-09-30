@@ -83,7 +83,7 @@ you could do
 import numpy as np
 from bunch import Bunch
 from enact import files, filters, cuts, nmat_measure
-from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config, pmat
+from enlib import zgetdata, utils, gapfill, fft, errors, scan, nmat, resample, config, pmat, rangelist
 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 config.default("gapfill", "copy", "TOD gapfill method. Can be 'copy' or 'linear'")
@@ -149,11 +149,13 @@ class ACTScan(scan.Scan):
 		res.subdets = res.subdets[detslice]
 		return res
 
-def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None, absdets=None, moby=False):
+def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None, absdets=None, moby=False, _return_nfull=False):
 	"""Given a filedb entry, reads all the data associated with the
 	fields specified (default: ["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"]).
 	Only detectors for which all the information is present will be
 	returned, and missing files will raise a DataMissing error."""
+	if isinstance(entry, list):
+		return read_combo(entry, fields=fields, subdets=subdets, absdets=absdets, moby=moby)
 	keymap = {"gain": ["gain","gain_correction"], "point_offsets": ["point_template","point_offsets"], "boresight": ["tod"] }
 	for key in fields:
 		if key in keymap:
@@ -211,6 +213,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	except (IOError, KeyError) as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	# Restrict to common set of ids. If absdets is specified, then
 	# restrict to detectors mentioned there.
+	nfull = None
 	if len(dets) > 0:
 		if absdets is not None:
 			dets.absdets = absdets
@@ -218,11 +221,12 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		inds  = utils.dict_apply_listfun(dets, utils.common_inds)
 		for key in dets:
 			I = inds[key]
+			nfull = len(I)
 			if len(I) == 0: raise errors.DataMissing("All detectors rejected!")
 			# Restrict to user-chosen subset. NOTE: This is based on indices
 			# into the set that would normally be accepted, not raw detector
 			# values!
-			if subdets is not None: I = I[subdets]
+			if subdets is not None: I = I[subdets[subdets<len(I)]]
 			res[key]  = res[key][I]
 			dets[key] = np.array(dets[key])[I]
 		dets = dets.values()[0]
@@ -247,6 +251,111 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		res.sample_offset = 0
 		res.cutafter = min([res[a].shape[-1] for a in ["tod","boresight","flags"] if a in res])+res.sample_offset
 	res.nrow, res.ncol = 33, 32
+	if _return_nfull:
+		return res, nfull
+	else:
+		return res
+
+def read_combo(entries, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"], subdets=None, absdets=None, moby=False, start_tol=100, align_tol=utils.arcsec):
+	if "noise" in fields: raise ValueError("read_combo doesn'ts upport reading noise from file")
+	#if absdets is not None: raise NotImplementedError, "read_combo does not support absdets"
+	#if subdets is not None: raise NotImplementedError, "read_combo does not support subdets"
+	ds = []
+	exceptions = []
+	j = 0
+	for entry in entries:
+		try:
+			d, nfull = read(entry, fields, subdets=subdets, absdets=absdets, moby=moby, _return_nfull=True)
+			ds.append(d)
+			if subdets is not None:
+				subdets = np.array(subdets) - nfull
+				subdets = np.array(subdets[subdets>=0])
+			if absdets is not None:
+				absdets = np.array(absdets) - j
+			j += d.nrow*d.ncol
+		except errors.DataMissing as e:
+			exceptions.append(e)
+	if len(ds) == 1: return ds[0]
+	if len(ds) == 0: raise errors.DataMissing("; ".join([e.message for e in exceptions]))
+
+	# Find the offset between each timeseries in unit of samples
+	nstep, dstep = 10, 1000
+	ts = np.array([d.boresight[0,0:dstep*nstep:dstep] for d in ds])
+	dt = np.median(ts[:,1:]-ts[:,:-1],1)/dstep
+	off = np.median(ts-ts[0],1)/dt # how many samples later each one starts compared to d[0]
+	offi = np.round(off).astype(int)
+	assert np.all(np.abs(off-offi) < 0.1), "Non-integer sample offset between entries in read_combo"
+	# Sort them such that d[0] is the one that starts first.
+	sorti = np.argsort(offi)
+	ds   = [ds[i] for i in sorti]
+	offi = offi[sorti]-np.min(offi)
+	assert np.max(offi) < start_tol, "Starting times exceed tolerance (%f > %f)" % (np.max(offi), start_tol)
+	# Check that the same offset applied to the other entries of the
+	# boresight match up. offi is how much d[0] must be offset by to match the others.
+	diffs = np.array([d.boresight[:,0:nstep*dstep:dstep]-ds[0].boresight[:,i:i+nstep*dstep:dstep] for d, i in zip(ds, offi)])
+	assert np.std(diffs[1:]) < align_tol, "Failed to align boresights. Misalignment: %s" % (str(np.std(diffs[1:],1))/utils.arcsec)
+
+	# Great! It's possible to make everything align. Figure out how long
+	# the final tod will be, after padding
+	nsamps = np.array([d.cutafter for d in ds])
+	nsamp  = np.max(nsamps+offi)
+	npad   = nsamp-nsamps
+
+	# Ok, start building the output. First the basics
+	res  = Bunch(entry=ds[0].entry, ncol=ds[0].ncol, nrow=sum([d.nrow for d in ds]))
+	res.dets, j = [], 0
+	for d in ds:
+		res.dets.append(d.dets + j)
+		j += d.nrow*d.ncol
+	res.dets = np.concatenate(res.dets)
+	det_offs = utils.cumsum([len(d.dets) for d in ds], endpoint=True)
+
+	# Merge sample offsets. We will use the lest restrictive offset relative
+	# tot he new start.
+	sample_offsets  = np.array([d.sample_offset for d in ds])
+	sample_offsets += offi
+	res.sample_offset = np.min(sample_offsets)
+	res.cutafter = nsamp
+
+	# Cuts must be offset and padded. offi indicates how far each
+	# d is from the start of the output d. Because we are changing
+	# sample_offsets, we must renumber the ranges and add cuts
+	# at the beginning
+	if "cut" in fields:
+		rs = []
+		for i, d in enumerate(ds):
+			multi = d.cut
+			for rlist in multi.data:
+				rnew = rlist.copy()
+				myoff = offi[i] + sample_offsets[i] - res.sample_offset
+				rnew.ranges += myoff
+				rnew.n = nsamp - res.sample_offset
+				rnew = rnew + [[0,myoff], [myoff+rlist.n,rnew.n]]
+				rs.append(rnew)
+		res.cut = rangelist.Multirange(rs)
+
+	if "boresight" in fields:
+		borelen  = np.max(np.array([d.boresight.shape[1] for d in ds])+offi)
+		res.boresight = np.zeros([3,borelen], dtype=ds[0].boresight.dtype)
+		flaglen  = np.max(np.array([d.flags.shape[0] for d in ds])+offi)
+		res.flags= np.zeros([flaglen],dtype=ds[0].flags.dtype)
+		for i, d in enumerate(ds):
+			res.boresight[:,offi[i]:offi[i]+d.boresight.shape[1]] = d.boresight
+			res.flags[offi[i]:offi[i]+d.flags.shape[0]] = d.flags
+
+	if "tod" in fields:
+		todlen  = np.max(np.array([d.tod.shape[1] for d in ds])+offi)
+		res.tod = np.zeros([len(res.dets),todlen],ds[0].tod.dtype)
+		for i, d in enumerate(ds):
+			res.tod[det_offs[i]:det_offs[i+1],offi[i]:offi[i]+d.tod.shape[1]] = d.tod
+
+	if "gain" in fields: res.gain = np.concatenate([d.gain for d in ds])
+	if "polangle" in fields: res.polangle = np.concatenate([d.polangle for d in ds])
+	if "tconst" in fields: res.tau = np.concatenate([d.tau for d in ds])
+	if "point_offsets" in fields: res.point_offset = np.concatenate([d.point_offset for d in ds], axis=0)
+	if "site" in fields: res.site = ds[0].site
+	if "spikes" in fields: res.spikes = ds[0].spikes # not accurate
+
 	return res
 
 def calibrate(data, nofft=False):
@@ -412,3 +521,15 @@ def apply_det_slice(d, sel):
 	for key in ["tod", "tau", "point_offset", "noise", "cut", "polangle", "gain", "noise", "dets"]:
 		if hasattr(d, key): setattr(d, key, getattr(d, key)[sel])
 	return d
+
+def group_ids(ids, tol=10):
+	# Match based on the first number in group
+	times  = np.array([int(id[:id.index(".")]) for id in ids])
+	inds   = np.argsort(times)
+	stimes= times[inds]
+	# Find equal ranges
+	diffs = stimes[1:]-stimes[:-1]
+	edges = np.concatenate([[0],np.where(diffs > tol)[0]+1,[len(stimes)]])
+	groups= np.array([edges[:-1],edges[1:]]).T
+	res = [[ids[inds[i]] for i in range(*group)] for group in groups]
+	return res
