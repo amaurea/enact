@@ -1,5 +1,5 @@
 import numpy as np, scipy as sp, enlib.bins, time, enlib.bins, h5py
-from enlib import nmat, utils,array_ops, fft
+from enlib import nmat, utils,array_ops, fft, errors
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated
@@ -61,7 +61,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, window=0):
 	bins = makebins(bin_edges, srate, nfreq, 2*vecs.shape[1], rfun=np.round)
 
 	white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
-	assert vecs.size > 0, "Could not find any noise modes!"
+	if vecs.size == 0: raise errors.ModelError("Could not find any noise modes")
 	E, V, Nu, Nd = [], [vecs], [], []
 	vinds = []
 	for bi, b in enumerate(bins):
@@ -333,12 +333,16 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		self.spikes = spikes
 	def update(self, tod, srate):
 		nmat.apply_window(tod, self.window)
-		if self.model == "jon":
-			ft = fft.rfft(tod) * tod.shape[1]**-0.5
-			noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes, window=self.window)
-		else:
-			nmat.apply_window(tod, self.window, inverse=True)
-			raise ValueError("Unknown noise model '%s'" % self.model)
+		try:
+			if self.model == "jon":
+				ft = fft.rfft(tod) * tod.shape[1]**-0.5
+				noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes, window=self.window)
+			else:
+				nmat.apply_window(tod, self.window, inverse=True)
+				raise ValueError("Unknown noise model '%s'" % self.model)
+		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
+			print "Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape)
+			noise_model = nmat.NmatNull()
 		# Undo our windowing of nmat
 		nmat.apply_window(tod, self.window, inverse=True)
 		return noise_model
