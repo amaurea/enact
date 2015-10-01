@@ -313,8 +313,7 @@ def read_combo(entries, fields=["gain","polangle","tconst","cut","point_offsets"
 	# Merge sample offsets. We will use the lest restrictive offset relative
 	# tot he new start.
 	sample_offsets  = np.array([d.sample_offset for d in ds])
-	sample_offsets += offi
-	res.sample_offset = np.min(sample_offsets)
+	res.sample_offset = np.min(sample_offsets + offi)
 	res.cutafter = nsamp
 
 	# Cuts must be offset and padded. offi indicates how far each
