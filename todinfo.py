@@ -153,14 +153,21 @@ def query_db(db, query):
 	taglist, rest = toks[0], ":".join(toks[1:])
 	if taglist:
 		for tagexpr in taglist.split(","):
+			if len(tagexpr) == 0: continue
 			try:
 				# Copy to avoid having __builtins__ being inserted into fields
 				locs = np.__dict__.copy()
 				locs["int"] = np.int0
 				locs["float"] = np.float_
 				db = db.select_inds(np.where(eval(tagexpr, db.fields.copy(), locs))[0])
-			except (NameError, AttributeError):
-				db = db.select_tags(tagexpr.split("+"))
+			except (SyntaxError, NameError, AttributeError):
+				subtoks = []
+				for tok in tagexpr.split("+"):
+					if tok[0] == "@":
+						subtoks += [line.split()[0] for line in open(tagexpr[1:],"r")]
+					else:
+						subtoks.append(tok)
+				db = db.select_tags(subtoks)
 	if rest:
 		try:
 			i = rest.index("[")

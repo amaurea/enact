@@ -123,6 +123,8 @@ class ACTScan(scan.Scan):
 			self.noise = d.noise
 		except AttributeError:
 			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), window=d.srate*config.get("tod_window"), spikes=d.spikes[:2].T)
+		try: self.autocut = d.autocut
+		except KeyError: self.autocut = []
 		# Implementation details
 		self.entry = entry
 		self.subdets = np.arange(ndet)
@@ -444,16 +446,21 @@ config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
 config.default("cut_max_frac",    0.25, "Max fraction of TOD to cut.")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
+	d.autocut = [] # list, because order matters
+	def addcut(label, dcut):
+		n0, dn = d.cut.sum(), dcut.sum()
+		d.cut = d.cut + dcut
+		d.autocut.append([ label, dn, d.cut.sum() - n0 ])
 	if config.get("cut_turnaround", turnaround):
-		d.cut = d.cut + cuts.turnaround_cut(d.boresight[0], d.boresight[1])
+		addcut("turnaround",cuts.turnaround_cut(d.boresight[0], d.boresight[1]))
 	if config.get("cut_ground", ground):
-		d.cut = d.cut + cuts.ground_cut(d.boresight, d.point_offset)
+		addcut("ground", cuts.ground_cut(d.boresight, d.point_offset))
 	if config.get("cut_sun", sun):
-		d.cut = d.cut + cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Sun", config.get("cut_sun_dist")*np.pi/180)
+		addcut("avoidance",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Sun", config.get("cut_sun_dist")*np.pi/180))
 	if config.get("cut_moon", moon):
-		d.cut = d.cut + cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180)
+		addcut("moon",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180))
 	if config.get("cut_pickup", pickup) and "pickup_cut" in d:
-		d.cut = d.cut + cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut)
+		addcut("pickup",cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut))
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	if config.get("cut_max_frac", max_frac) < cut_fraction:
