@@ -296,10 +296,16 @@ def project_out_from_matrix(A, V):
 	Q = A.dot(V)
 	return A - Q.dot(np.linalg.solve(np.conj(V.T).dot(Q), np.conj(Q.T)))
 
-def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None):
+def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None, skip_mean=False):
 	if mask is None: mask = np.full(ft.shape[1], True, dtype=bool)
 	ndet = ft.shape[0]
 	vecs = np.zeros([ndet,0])
+	if not skip_mean:
+		# Force the uniform common mode to be included. This
+		# assumes all the detectors have accurately measured gain.
+		# Forcing this avoids the possibility that we don't find
+		# any modes at all.
+		vecs = np.hstack([vecs,np.full([ndet,1],ndet**-0.5)])
 	for bi, b in enumerate(bins):
 		d    = ft[:,b[0]:b[1]]
 		# Ignore frequences in mask
@@ -313,10 +319,12 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None)
 		# there works. But calling it here results in noe eigenvalues
 		# being nan. Should investigate.
 		e, v = np.linalg.eig(cov)
-		e = e.real
-		v = v.real
+		e, v = e.real, v.real
 		if amp_thresholds != None:
-			good = e > amp_thresholds[bi]*np.median(e)
+			# Compute median, exempting modes we don't have enough
+			# data to measure
+			median_e = np.median(np.sort(e)[::-1][:b[1]-b[0]+1])
+			good = e > amp_thresholds[bi]*median_e
 			e, v = e[good], v[:,good]
 		if single_threshold and e.size:
 			good = np.max(np.abs(v),0)<single_threshold
