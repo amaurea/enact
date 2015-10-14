@@ -200,10 +200,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 			res.site = files.read_site(entry.site)
 		if "noise" in fields:
 			reading = "noise"
-			try:
-				res.noise = nmat.read_nmat(entry.noise_it2)
-			except (IOError, AttributeError):
-				res.noise = nmat.read_nmat(entry.noise)
+			res.noise = nmat.read_nmat(entry.noise)
 			dets.noise = res.noise.dets
 		if "noise_cut" in fields:
 			reading = "noise_cut"
@@ -377,7 +374,8 @@ def calibrate(data, nofft=False):
 	# Smooth over gaps in the encoder values and convert to radians
 	if "boresight" in data:
 		data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
-		bad = srate_mask(data.boresight[0]) + (data.flags!=0)*(data.flags!=0x10)
+		bad = (data.flags!=0)*(data.flags!=0x10)
+		#bad += srate_mask(data.boresight[0])
 		if np.sum(bad) > 0.1*len(bad):
 			raise errors.DataMissing("Too many pointings flagged bad")
 		for b in data.boresight:
@@ -436,21 +434,35 @@ def calibrate(data, nofft=False):
 	# We operate in-place, but return for good measure
 	return data
 
+# These just turn cuts on or off, without changing their other properties
 config.default("cut_turnaround", False, "Whether to apply the turnaround cut.")
 config.default("cut_ground",     False, "Whether to apply the turnaround cut.")
 config.default("cut_sun",        False, "Whether to apply the sun distance cut.")
 config.default("cut_moon",       False, "Whether to apply the moon distance cut.")
 config.default("cut_pickup",     False, "Whether to apply the pickup cut.")
+config.default("cut_stationary", True,  "Whether to apply the stationary ends cut")
+config.default("cut_tod_ends",   True,  "Whether to apply the tod ends cut")
+config.default("cut_mostly_cut", True,  "Whether to apply the mostly cut detector cut")
+# These cuts are always active, but can be effectively based on the parameter value
+config.default("cut_max_frac",    0.50, "Cut whole tod if more than this fraction is autocut.")
+config.default("cut_tod_mindur",  3.75, "Minimum duration of tod in minutes")
+config.default("cut_tod_mindet",   100, "Minimum number of usable detectors in tod")
+# These just modify the behavior of a cut. Most of these are in cuts.py
 config.default("cut_sun_dist",    30.0, "Min distance to Sun in Sun cut.")
 config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
-config.default("cut_max_frac",    0.25, "Max fraction of TOD to cut.")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
+	ndet, nsamp = d.cut.shape
 	d.autocut = [] # list, because order matters
 	def addcut(label, dcut):
 		n0, dn = d.cut.sum(), dcut.sum()
 		d.cut = d.cut + dcut
-		d.autocut.append([ label, dn, d.cut.sum() - n0 ])
+		if isinstance(dcut, rangelist.Rangelist): dn *= ndet
+		d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
+	if config.get("cut_stationary"):
+		addcut("stationary", cuts.stationary_cut(d.boresight[1]))
+	if config.get("cut_tod_ends"):
+		addcut("tod_ends", cuts.tod_end_cut(nsamp, d.srate))
 	if config.get("cut_turnaround", turnaround):
 		addcut("turnaround",cuts.turnaround_cut(d.boresight[0], d.boresight[1]))
 	if config.get("cut_ground", ground):
@@ -461,10 +473,25 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		addcut("moon",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180))
 	if config.get("cut_pickup", pickup) and "pickup_cut" in d:
 		addcut("pickup",cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut))
+	if config.get("cut_mostly_cut"):
+		addcut("mostly_cut", cuts.cut_mostly_cut_detectors(d.cut))
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
-	if config.get("cut_max_frac", max_frac) < cut_fraction:
-		raise errors.DataMissing("Too many cut samples! (%.0f%%)" % (cut_fraction*100))
+	# Get rid of completely cut detectors
+	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
+	d = apply_det_slice(d, keep)
+
+	def cut_all_if(label, condition):
+		if condition: dcut = rangelist.Rangelist.ones(nsamp)
+		else: dcut = rangelist.Rangelist.empty(nsamp)
+		addcut(label, dcut)
+	cut_all_if("max_frac",   config.get("cut_max_frac", max_frac) < cut_fraction)
+	cut_all_if("tod_mindur", config.get("cut_tod_mindur") > nsamp/d.srate/60)
+	cut_all_if("tod_mindet", config.get("cut_tod_mindet") > ndet)
+	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
+	d = apply_det_slice(d, keep)
+
+	return d
 
 def offset_to_dazel(offs, azel):
 	"""Convert from focalplane offsets to offsets in horizontal coordinates.
@@ -483,25 +510,6 @@ def offset_to_dazel(offs, azel):
 	dEl = np.arcsin(p[2])-el
 	dAz = -np.arctan2(p[1],p[0])
 	return np.array([dAz,dEl]).T
-
-def offset_to_dazel_old(offs, azel):
-	az, el = azel
-	dx, dy = np.asarray(offs).T
-	dz = np.sqrt(1-dx**2-dy**2)
-	y2 = dz*np.sin(el)+dy*np.cos(el)
-	z2 = dz*np.cos(el)-dy*np.sin(el)
-	dEl = np.arcsin(y2)-el
-	dAz = np.arctan2(dx, z2)
-	return np.array((dAz,dEl)).T
-#
-#def dazel_to_offset(dazel, azel):
-#	az, el = azel
-#	da, de = np.asarray(dazel).T
-#	y2 = np.sin(el+de)
-#	dx = np.sin(da)*np.cos(el+de)
-#	z2 = dx/np.tan(da)
-#	dy = y2*np.cos(el)-z2*np.sin(el)
-#	return np.array((dx,dy)).T
 
 def srate_mask(t, tolerance=400*10.0):
 	"""Returns a boolean array indicating which samples
