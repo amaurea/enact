@@ -111,7 +111,26 @@ def read_site(fname):
 		res[id] = ast.literal_eval(a.body[0].value)
 	return res
 
-def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
+def read_layout(fname):
+	"""Read the detector layout, returning a Bunch of with
+	ndet, nrow, ncol, rows, cols, darksquid, pcb."""
+	rows, cols, dark, pcb = [], [], [], []
+	with open(fname,"r") as f:
+		for line in f:
+			if line.startswith("#"): continue
+			toks = line.split()
+			r, c, d, p = int(toks[1]), int(toks[2]), int(toks[3])>0, toks[4]
+			rows.append(r)
+			cols.append(c)
+			dark.append(d)
+			pcb.append(p)
+	rows = np.array(rows)
+	cols = np.array(cols)
+	dark = np.array(dark)
+	pcb  = np.array(pcb)
+	return Bunch(rows=rows, cols=cols, dark=dark, pcb=pcb, nrow=np.max(rows)+1, ncol=np.max(cols)+1, ndet=len(rows))
+
+def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
 	"""Given a filename or dirfile, reads the time ordered data from the file,
 	returning ids,data. If the ids argument is specified, only those ids will
 	be retrieved. The mapping argument defines the mapping between ids and
@@ -124,6 +143,7 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 	def read(dfile, rowcol):
 		reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
 		nsamp = dfile.spf("tesdatar%02dc%02d" % tuple(reference))*dfile.nframes
+		if shape_only: return nsamp
 		res   = np.empty([rowcol.shape[1],nsamp],dtype=np.int32)
 		for i, (r,c) in enumerate(rowcol.T):
 			# The four lowest bits are status flags
@@ -136,9 +156,12 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 	else:
 		return ids, read(fname, rowcol)
 
-def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
+def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
 	import moby2
 	if ids is None: ids = np.arange(ndet)
+	if shape_only:
+		foo = moby2.scripting.get_tod({'filename': fname, 'det_uid':ids[:1]})
+		return ids, foo.data.size
 	tod = moby2.scripting.get_tod({'filename': fname, 'det_uid':ids})
 	return ids, tod.data
 

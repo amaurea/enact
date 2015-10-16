@@ -73,6 +73,19 @@ def read_boresight(entry, moby=False):
 		dataset.DataField("flags",     flags,samples=[0,flags.shape[0]],sample_index=0),
 		dataset.DataField("entry",     entry)])
 
+def read_layout(entry):
+	data = files.read_layout(entry.layout)
+	return dataset.DataSet([
+		dataset.DataField("layout", data),
+		dataset.DataField("entry", entry)])
+
+def read_tod_shape(entry, moby=False):
+	if moby: dets, nsamp = files.read_tod_moby(entry.tod, shape_only=True)
+	else:    dets, nsamp = files.read_tod(entry.tod, shape_only=True)
+	return dataset.DataSet([
+		dataset.DataField("tod_shape", dets=dets, samples=[0,nsamp]),
+		dataset.DataField("entry", entry)])
+
 def read_tod(entry, dets=None, moby=False):
 	if moby: dets, tod = files.read_tod_moby(entry.tod, ids=dets)
 	else:    dets, tod = files.read_tod(entry.tod, ids=dets)
@@ -86,15 +99,17 @@ readers = {
 		"tconst": read_tconst,
 		"cut": read_cut,
 		"point_offsets": read_point_offsets,
+		"layout": read_layout,
 		"site": read_site,
 		"noise": read_noise,
 		"noise_cut": read_noise_cut,
 		"spikes": read_spikes,
 		"boresight": read_boresight,
+		"tod_shape": read_tod_shape,
 		"tod": read_tod
 	}
 
-def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","site","noise","noise_cut","spikes","boresight","tod"], verbose=False):
+def read(entry, fields=["layout","gain","polangle","tconst","cut","point_offsets","site","noise","noise_cut","spikes","boresight","tod_shape","tod"], verbose=False):
 	d = None
 	for field in fields:
 		t1 = time.time()
@@ -105,7 +120,7 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","site",
 		if d is None: d = d2
 		else: d = dataset.merge([d,d2])
 		t2 = time.time()
-		if verbose: print "read %-14s in %6.3f s" % (field, t2-t1)
+		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1)
 	return d
 
 def require(data, fields):
