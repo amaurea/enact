@@ -9,14 +9,15 @@ def read_gain(fname):
 	data = read_pylike_format(fname)
 	return np.array(data["det_uid"]), np.array(data["cal"])
 
-def read_gain_correction(fname):
+def read_gain_correction(fname, id=None):
 	"""Reads per-tod overall gain correction from file. Returns
 	{todID: val}."""
 	res = {}
 	for line in lines(fname):
-		if not line.startswith("#"):
-			id, value = line.split()
-			res[id] = float(value)
+		if line.startswith("#"): continue
+		if id and not line.startswith(id): continue
+		id, value = line.split()
+		res[id] = float(value)
 	return res
 
 def read_polangle(fname):
@@ -167,12 +168,13 @@ def read_spikes(fname):
 	good = a[5] != 0
 	return a[:,good][[4,5,2]]
 
-def read_noise_cut(fname):
+def read_noise_cut(fname, id=None):
 	"""Given a filename, reads the set of detectors to cut for each tod,
 	returning it as a dictionary of id:detlist."""
 	res = {}
 	for line in lines(fname):
 		if line[0] == '#': continue
+		if id and not line.startswith(id): continue
 		toks = line.split()
 		res[toks[0]] = np.array([int(w) for w in toks[2:]],dtype=np.int32)
 	return res

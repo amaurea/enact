@@ -23,62 +23,15 @@ you could do
  process(a)
 """
 
-# How to handle noise
-#
-# Arguments for on-the-fly noise estimation:
-#  1. Easier, don't have to run tod2nmat
-#  2. Ensures that the noise model uses parameters consistent with the analysis.
-#     For example, filters applied in the mapmaker 
-#  3. Can do automatic two-pass mapmaking instead of pass1 new_noise pass2.
-#     Two-pass mapmaking is currently inconvenient because the second pass needs
-#     to read the noise model from an alternative location.
-#  4. Ar1+ar2 joint-tod analysis is easy to do in this case - just add an alternative
-#     data.read function that calls read for each tod, and builds a combined object.
-#     Then proceed with calibrate etc. as usual. But such a joint noise model would
-#     not fit in the usual framework. It could be stored as id1+id2.hdf, but
-#     then it would need to be read in addition to id1.hdf and id2.hdf if
-#     data.read_multi is supposed to call data.read. If noise models are done
-#     on the fly, these problems don't arise.
-# Arguments against on-the-fly noise estimation
-#  1. Noise estimation takes time, and the noise model can be reused several
-#     times. Currently reading in a TOD takes 15-20 s. Estimating the noise model
-#     takes 5-15 s. So it would slow down loading by a fair amount. But loading
-#     is a small fraction of total time, and it may be possible to optimize
-#     noise model estimation, as ninkasi estimates it pretty quickly.
-#  2. It may be cumbersome to switch between on-the-fly and precomputed noise.
-#     We will still want to be able to exchange noise models, after all.
-#
-# Where should on-the-fly estimation happen? We read tod-free scans first,
-# and then explicitly read the samples later. Reading the samples is slow,
-# so we only want to do it once. It currently happens in mapmaker.Eqsys.calc_b(),
-# and it is not really feasible for it to happen elsewhere, so that's when the
-# noise estimation needs to happen too. However, calc_b() is supposed to be
-# instrument-agnostic code, so directly calling enact.nmat_measure there is wrong.
-#  1. The Scan object could contain a functor that when applied to the TOD returns
-#     a noise model.
-#  2. Eqsys could be passed an object it should use to produce noise models.
-# *****************************************************************************
-# In all cases, it is problematic that calc_b() needs to happen before anything
-# else here, as I currently produce precons before Eqsys is even initialized,
-# and precons depend on the noise model :( Moving calc_b earlier destroys the
-# nice procedure I have now, where signals, precons, etc are defined first,
-# and then passed fully formed to the equation system object.
-# *****************************************************************************
-# Suggestions:
-#  1. We read in the noise model as normal (so tod2nmat needs
-#     to have been run. But the mapmaker has an option to reestimate the noise.
-#     This would call the .recompute(tod) method of the nmat object, which would
-#     return a new noise model. This would not benefit the preconditioners, but
-#     it would be good enough for iterative mapmaking. The resulting noise model
-#     could also be output and stored for later use when .write is called.
-#  2. Build the filters first, then read the tod, filter and estimate noise model.
-#     Then proceed as usual. This requires reading the TOD twice for each time
-#     the mapmaker is run. Also, the current filter setup sets up postprocessing
-#     at the same time. But this would let the preconditioners make use of the
-#     updated noise model, and would not require tod2nmat to have been run.
-#  3. In data.read, read noise if possible, otherwise set it to a dummy noise
-#     object of the correct type. In tod2nmat, noise estimation is run if
-#     requested or if we have a dummy object.
+# Problem: How to read the actual TOD later than the rest of
+# information, without compromising the rest of the information?
+# For example, while ideally the TOD and boresight shoud have
+# the sme length, they may be different. If the TOD is shorter,
+# they must be made consistent somehow, and the easiest way it
+# to truncate the boresight (and cuts). But that doesn't work
+# if we don't know how long the tod is because we haven't read it
+# yet!
+
 
 import numpy as np
 from bunch import Bunch
@@ -132,8 +85,15 @@ class ACTScan(scan.Scan):
 	def get_samples(self):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
+		# It's important that this is done consistently with the initialization.
+		# The current method does not really ensure that, since
+		#  1. in theory the avilable dets might be different when tod is added to the fields
+		#  2. When being passed a d we can't ensure that it's been cut consistently
+		#  3. The result of autocut may depend on self.subdets
+		# Also, autocuts should ideally happen *before* gapfilling, desloping, etc.
 		d = read(self.entry, self.fields + ["tod"], subdets=self.subdets)
 		calibrate(d)
+		autocut(d)
 		tod = d.tod
 		del d.tod
 		method = config.get("downsample_method")
@@ -150,6 +110,30 @@ class ACTScan(scan.Scan):
 		res.sampslices.append(sampslice)
 		res.subdets = res.subdets[detslice]
 		return res
+
+# I want to be able to do this:
+#  1. d = read(entry, fields=[blah blah, but not tod])
+#  2. d = read(entry, fields=["tod"], d=d) # adds tod to d
+# or
+#  1. d = read(entry, fields=[etc])
+#  2. d = calibrate(d)
+#  3. d = autocut(d)
+#  4. d = hum, get consistently calibrared and cut tod also
+# Might have to settle for a less general one, which singles out
+# tod:
+#  1. d = read(entry, fields=[...])
+#  2. d = calibrate(d)
+#  3. d = autocut(d)
+#  4. tod = read_tod(d)
+#  5. tod = calibrate_tod(tod, d)
+# This would work, but is ugly in that it would yield different
+# results from read, calibrate and autocut with the tod read from
+# the beginning, due to the order in which calibration and autocuts happen.
+# Basically, there are three steps:
+#  1. Most of the calibration (affects both tod and other things)
+#  2. Autocuts, which depend on calibration
+#  3. Calibration that depends on cuts (this one only affects the tod)
+
 
 def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site","noise"], subdets=None, absdets=None, moby=False, _return_nfull=False):
 	"""Given a filedb entry, reads all the data associated with the
@@ -212,23 +196,8 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 	except (IOError, KeyError) as e: raise errors.DataMissing("%s [%s] [%s]" % (e.message, reading, entry.id))
 	# Restrict to common set of ids. If absdets is specified, then
 	# restrict to detectors mentioned there.
-	nfull = None
 	if len(dets) > 0:
-		if absdets is not None:
-			dets.absdets = absdets
-			res.absdets = np.arange(len(absdets))
-		inds  = utils.dict_apply_listfun(dets, utils.common_inds)
-		for key in dets:
-			I = inds[key]
-			nfull = len(I)
-			if len(I) == 0: raise errors.DataMissing("All detectors rejected!")
-			# Restrict to user-chosen subset. NOTE: This is based on indices
-			# into the set that would normally be accepted, not raw detector
-			# values!
-			if subdets is not None: I = I[subdets[subdets<len(I)]]
-			res[key]  = res[key][I]
-			dets[key] = np.array(dets[key])[I]
-		dets = dets.values()[0]
+		res, dets, nfull = restrict_to_common_dets(res, dets, subdets=subdets, absdets=absdets)
 	# Then get the boresight and time-ordered data
 	try:
 		if moby:
@@ -254,6 +223,30 @@ def read(entry, fields=["gain","polangle","tconst","cut","point_offsets","tod","
 		return res, nfull
 	else:
 		return res
+
+def restrict_to_common_dets(res, dets, subdets=None, absdets=None):
+	"""Given res:{key->arr[ndet]} and dets:{key->dets[ndet]}, 
+	extract slices of each arr corresponding to the interesction
+	of all the detector sets. Returns the modified res and the
+	resulting detector ids, as well as the number of detectors
+	prior to applying the optional subdet slicing."""
+	if absdets is not None:
+		dets.absdets = absdets
+		res.absdets = np.arange(len(absdets))
+	inds = utils.dict_apply_listfun(dets, utils.common_inds)
+	nfull = None
+	for key in dets:
+		I = inds[key]
+		nfull = len(I)
+		if len(I) == 0: raise errors.DataMissing("All detectors rejected!")
+		# Restrict to user-chosen subset. NOTE: This is based on indices
+		# into the set that would normally be accepted, not raw detector
+		# values!
+		if subdets is not None: I = I[subdets[subdets<len(I)]]
+		res[key]  = res[key][I]
+		dets[key] = np.array(dets[key])[I]
+	dets = dets.values()[0]
+	return res, dets, nfull
 
 def read_combo(entries, fields=["gain","polangle","tconst","cut","point_offsets","tod","boresight","site"], subdets=None, absdets=None, moby=False, start_tol=100, align_tol=utils.arcsec):
 	if "noise" in fields: raise ValueError("read_combo doesn'ts upport reading noise from file")
@@ -401,6 +394,8 @@ def calibrate(data, nofft=False):
 	if "flags"     in data: data.flags     = data.flags[:nsamp]
 	if "cut"       in data: data.cut       = data.cut[:,:nsamp]
 
+	# Ideally autocuts would happen *here*
+
 	# Apply gain, make sure cut regions are reasonably well-behaved,
 	# and make it fourier-friendly by removing a slope.
 	if "tod" in data:
@@ -478,8 +473,12 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	# Get rid of completely cut detectors
+	print "A"
+	printshapes(d)
 	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
 	d = apply_det_slice(d, keep)
+	print "B"
+	printshapes(d)
 
 	def cut_all_if(label, condition):
 		if condition: dcut = rangelist.Rangelist.ones(nsamp)
@@ -490,8 +489,16 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	cut_all_if("tod_mindet", config.get("cut_tod_mindet") > ndet)
 	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
 	d = apply_det_slice(d, keep)
+	print "C"
+	printshapes(d)
 
 	return d
+
+def printshapes(d):
+	for key in d:
+		try:
+			print "%s: %s" % (key, str(d[key].shape))
+		except: pass
 
 def offset_to_dazel(offs, azel):
 	"""Convert from focalplane offsets to offsets in horizontal coordinates.
@@ -532,7 +539,7 @@ def get_cuts(fnames):
 	raise IOError(str(fnames))
 
 def apply_det_slice(d, sel):
-	for key in ["tod", "tau", "point_offset", "noise", "cut", "polangle", "gain", "noise", "dets"]:
+	for key in ["tod", "tau", "point_offset", "cut", "polangle", "gain", "noise", "dets", "noise_cut"]:
 		if hasattr(d, key): setattr(d, key, getattr(d, key)[sel])
 	return d
 

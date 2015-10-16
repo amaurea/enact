@@ -343,6 +343,7 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		nmat.apply_window(tod, self.window)
 		try:
 			if self.model == "jon":
+				print "Measuring noise model"
 				ft = fft.rfft(tod) * tod.shape[1]**-0.5
 				noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes, window=self.window)
 			else:
