@@ -16,8 +16,8 @@ def read_gain_correction(fname, id=None):
 	for line in lines(fname):
 		if line.startswith("#"): continue
 		if id and not line.startswith(id): continue
-		id, value = line.split()
-		res[id] = float(value)
+		tod_id, value = line.split()
+		res[tod_id] = float(value)
 	return res
 
 def read_polangle(fname):
