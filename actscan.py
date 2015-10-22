@@ -2,16 +2,22 @@ import numpy as np, time
 from enact import nmat_measure, actdata
 from enlib import utils, scan, nmat, resample, config
 
+config.default("cut_noise_whiteness", True, "Whether to apply the noise_cut or not")
+config.default("cut_spikes", True, "Whether to apply the spike cut or not")
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 config.default("noise_model", "file", "Which noise model to use. Can be 'file' or 'jon'")
 config.default("tod_window", 0.0, "Number of samples to window the tod by on each end")
+config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False):
 		self.fields = ["gain","polangle","tconst","cut","point_offsets","boresight","site","tod_shape","layout"]
 		if config.get("noise_model") == "file":
 			self.fields += ["noise"]
 		else:
-			self.fields += ["spikes","noise_cut"]
+			if config.get("cut_noise_whiteness"):
+				self.fields += ["noise_cut"]
+			if config.get("cut_spikes"):
+				self.fields += ["spikes"]
 		if d is None:
 			d = actdata.read(entry, self.fields, verbose=verbose)
 			actdata.calibrate(d, verbose=verbose)
@@ -38,7 +44,8 @@ class ACTScan(scan.Scan):
 		if "noise" in d:
 			self.noise = d.noise
 		else:
-			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), window=d.srate*config.get("tod_window"), spikes=d.spikes[:2].T)
+			spikes = d.spikes[:2].T if "spikes" in d else None
+			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), window=d.srate*config.get("tod_window"), spikes=None)
 		self.autocut = d.autocut if "autocut" in d else []
 		# Implementation details. d is our DataSet, which we keep around in
 		# because we need it to read tod consistently later. It will *not*
@@ -61,7 +68,9 @@ class ACTScan(scan.Scan):
 		self.d += actdata.read_tod(self.entry, dets=self.d.dets)
 		t2 = time.time()
 		if verbose: print "read  %-14s in %6.3f s" % ("tod", t2-t1)
-		actdata.calibrate(self.d, operations=["tod"], verbose=verbose)
+		if config.get("tod_skip_deconv"): ops = ["tod_real"]
+		else: ops = ["tod"]
+		actdata.calibrate(self.d, operations=ops, verbose=verbose)
 		tod = self.d.tod
 		# Remove tod from our local d, so we won't end up hauling it around forever
 		del self.d.tod
