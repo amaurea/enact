@@ -2,11 +2,19 @@ import numpy as np, time
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata
 from enact import files, cuts, filters
 
+def try_read(method, desc, fnames, *args, **kwargs):
+	"""Try to read multiple alternative filenames, raising a DataMissing
+	exception only if none of them can be read. Otherwise, return the first
+	matching."""
+	if isinstance(fnames, basestring): fnames = [fnames]
+	for fname in fnames:
+		try: return method(fname, *args, **kwargs)
+		except (IOError,zgetdata.OpenError) as e: pass
+	raise errors.DataMissing(desc + ": " + fnames)
+
 def read_gain(entry):
-	try: dets, gain_raw = files.read_gain(entry.gain)
-	except IOError: raise errors.DataMissing("gain: " + entry.gain)
-	try: correction = files.read_gain_correction(entry.gain_correction, id=entry.id)[entry.id]
-	except IOError: raise errors.DataMissing("gain_correction: " + entry.gain_correction)
+	dets, gain_raw = try_read(files.read_gain, "gain", entry.gain)
+	try: correction = try_read(files.read_gain_correction, "gain_correction", entry.gain_correction, id=entry.id)[entry.id]
 	except KeyError: raise errors.DataMissing("gain_correction id: " + entry.id)
 	mask = np.isfinite(gain_raw)*(gain_raw != 0)
 	dets, gain_raw = dets[mask], gain_raw[mask]
@@ -17,32 +25,27 @@ def read_gain(entry):
 		dataset.DataField("entry", entry)])
 
 def read_polangle(entry):
-	try: dets, data = files.read_polangle(entry.polangle)
-	except IOError: raise errors.DataMissing("polangle: " + entry.polangle)
+	dets, data = try_read(files.read_polangle, "polangle", entry.polangle)
 	return dataset.DataSet([
 		dataset.DataField("polangle", data, dets=dets, det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_tconst(entry):
-	try: dets, data = files.read_tconst(entry.tconst)
-	except IOError: raise errors.DataMissing("tconst: " + entry.tconst)
+	dets, data = try_read(files.read_tconst, "tconst", entry.tconst)
 	return dataset.DataSet([
 		dataset.DataField("tau", data, dets=dets, det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_cut(entry):
-	try: dets, data, offset = files.read_cut(entry.cut)
-	except IOError: raise errors.DataMissing("cut: " + entry.cut)
+	dets, data, offset = try_read(files.read_cut, "cut", entry.cut)
 	samples = [offset, offset + data.shape[-1]]
 	return dataset.DataSet([
 		dataset.DataField("cut", data, dets=dets, det_index=0, samples=samples, sample_index=1),
 		dataset.DataField("entry", entry)])
 
 def read_point_offsets(entry):
-	try: dets, template = files.read_point_template(entry.point_template)
-	except IOError: raise errors.DataMissing("point_template: " + entry.point_template)
-	try: correction = files.read_point_offsets(entry.point_offsets)[entry.id]
-	except IOError: raise errors.DataMissing("point_offsets: " + entry.point_offsets)
+	dets, template = try_read(files.read_point_template, "point_template", entry.point_template)
+	try: correction = try_read(files.read_point_offsets, "point_offsets", entry.point_offsets)[entry.id]
 	except KeyError: raise errors.DataMissing("point_offsets id: " + entry.id)
 	return dataset.DataSet([
 		dataset.DataField("point_offset",  template+correction, dets=dets, det_index=0),
@@ -51,65 +54,54 @@ def read_point_offsets(entry):
 		dataset.DataField("entry", entry)])
 
 def read_site(entry):
-	try: site = files.read_site(entry.site)
-	except IOError: raise errors.DataMissing("site: " + entry.site)
+	site = try_read(files.read_site, "site", entry.site)
 	return dataset.DataSet([
 		dataset.DataField("site", site),
 		dataset.DataField("entry", entry)])
 
 def read_noise(entry):
-	try: data = nmat.read_nmat(entry.noise)
-	except IOError: raise errors.DataMissing("noise: " + entry.noise)
+	data = try_read(nmat.read_nmat, "noise", entry.noise)
 	return dataset.DataSet([
 		dataset.DataField("noise", data, dets=data.dets, det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_noise_cut(entry):
-	try: dets = files.read_noise_cut(entry.noise_cut,id=entry.id)[entry.id]
-	except IOError: raise errors.DataMissing("noise_cut: " + entry.noise_cut)
+	try: dets = try_read(files.read_noise_cut, "noise_cut", entry.noise_cut, id=entry.id)[entry.id]
 	except KeyError: raise errors.DataMissing("noise_cut id: " + entry.id)
 	return dataset.DataSet([
 		dataset.DataField("noise_cut", dets=dets),
 		dataset.DataField("entry", entry)])
 
 def read_spikes(entry):
-	try: spikes = files.read_spikes(entry.spikes)
-	except IOError: raise errors.DataMissing("spikes: " + entry.spikes)
+	spikes = try_read(files.read_spikes, "spikes", entry.spikes)
 	return dataset.DataSet([
 		dataset.DataField("spikes", data=spikes),
 		dataset.DataField("entry", entry)])
 
 def read_boresight(entry, moby=False):
-	try:
-		if moby: bore, flags = files.read_boresight_moby(entry.tod)
-		else:    bore, flags = files.read_boresight(entry.tod)
-	except (IOError, zgetdata.OpenError): raise errors.DataMissing("boresight: " +entry.tod)
+	if moby: bore, flags = try_read(files.read_boresight_moby, "boresight", entry.tod)
+	else:    bore, flags = try_read(files.read_boresight,      "boresight", entry.tod)
 	return dataset.DataSet([
 		dataset.DataField("boresight", bore, samples=[0,bore.shape[1]], sample_index=1),
 		dataset.DataField("flags",     flags,samples=[0,flags.shape[0]],sample_index=0),
 		dataset.DataField("entry",     entry)])
 
 def read_layout(entry):
-	try: data = files.read_layout(entry.layout)
-	except IOError: raise errors.DataMissing("layout: " + entry.layout)
+	data = try_read(files.read_layout, "layout", entry.layout)
 	return dataset.DataSet([
 		dataset.DataField("layout", data),
 		dataset.DataField("entry", entry)])
 
 def read_tod_shape(entry, moby=False):
-	try:
-		if moby: dets, nsamp = files.read_tod_moby(entry.tod, shape_only=True)
-		else:    dets, nsamp = files.read_tod(entry.tod, shape_only=True)
-	except (IOError, zgetdata.OpenError): raise errors.DataMissing("tod_shape: " + entry.tod)
+	if moby: dets, nsamp = try_read(files.read_tod_moby, "tod_shape", entry.tod, shape_only=True)
+	else:    dets, nsamp = try_read(files.read_tod,      "tod_shape", entry.tod, shape_only=True)
 	return dataset.DataSet([
 		dataset.DataField("tod_shape", dets=dets, samples=[0,nsamp]),
 		dataset.DataField("entry", entry)])
 
 def read_tod(entry, dets=None, moby=False):
-	try:
-		if moby: dets, tod = files.read_tod_moby(entry.tod, ids=dets)
-		else:    dets, tod = files.read_tod(entry.tod, ids=dets)
-	except (IOError, zgetdata.OpenError): raise errors.DataMissing("tod: " + entry.tod)
+	if moby: dets, tod = try_read(files.read_tod_moby, "tod", entry.tod)
+	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod)
 	return dataset.DataSet([
 		dataset.DataField("tod", tod, dets=dets, samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
 		dataset.DataField("entry", entry)])
