@@ -10,7 +10,7 @@ def try_read(method, desc, fnames, *args, **kwargs):
 	for fname in fnames:
 		try: return method(fname, *args, **kwargs)
 		except (IOError,zgetdata.OpenError) as e: pass
-	raise errors.DataMissing(desc + ": " + fnames)
+	raise errors.DataMissing(desc + ": " + ", ".join(fnames))
 
 def read_gain(entry):
 	dets, gain_raw = try_read(files.read_gain, "gain", entry.gain)
@@ -122,7 +122,7 @@ readers = {
 		"tod": read_tod
 	}
 
-def read(entry, fields=["layout","gain","polangle","tconst","cut","point_offsets","site","noise","noise_cut","spikes","boresight","tod_shape","tod"], verbose=False):
+def read(entry, fields=["layout","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","tod_shape","tod"], verbose=False):
 	d = None
 	for field in fields:
 		t1 = time.time()
@@ -282,10 +282,10 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 
 calibrators = {
 	"boresight":    calibrate_boresight,
-	"fftlen":       crop_fftlen,
 	"point_offset": calibrate_point_offset,
 	"polangle":     calibrate_polangle,
 	"autocut":      autocut,
+	"fftlen":       crop_fftlen,
 	"tod":          calibrate_tod,
 	"tod_real":     calibrate_tod_real,
 	"tod_fourier":  calibrate_tod_fourier,

@@ -2,7 +2,7 @@
 import ast, numpy as np, enlib.rangelist, re
 from bunch import Bunch
 from enlib.utils import lines
-from enlib.zgetdata import dirfile
+from enlib import pyactgetdata, zgetdata
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -87,7 +87,10 @@ def read_cut(fname):
 			r, c, toks = int(m.group(1)), int(m.group(2)), m.group(3).split()
 			id = r*ncol+c
 			ranges = np.array([[int(i) for i in word[1:-1].split(",")] for word in toks])
-			nmax   = max(nmax,max([sub[1] for sub in ranges]))
+			nmax   = max(nmax,np.max(ranges[:,1]))
+			# Cap to nsamp if available
+			if nsamp: ranges[:,1] = np.minimum(nsamp, ranges[:,1])
+			ranges[:,0] = np.maximum(0, ranges[:,0])
 			ids.append(id)
 			cuts.append(ranges)
 			continue
@@ -142,16 +145,15 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_o
 	rowcol = ids if ids.ndim == 2 else np.asarray(mapping(ids))
 	def read(dfile, rowcol):
 		reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
-		nsamp = dfile.spf("tesdatar%02dc%02d" % tuple(reference))*dfile.nframes
+		nsamp = len(dfile.getdata("tesdatar%02dc%02d" % tuple(reference)))
 		if shape_only: return nsamp
 		res   = np.empty([rowcol.shape[1],nsamp],dtype=np.int32)
 		for i, (r,c) in enumerate(rowcol.T):
 			# The four lowest bits are status flags
 			res[i] = dfile.getdata("tesdatar%02dc%02d" % (r,c)) >> 4
-			dfile.raw_close()
 		return res
 	if isinstance(fname, basestring):
-		with dirfile(fname) as dfile:
+		with pyactgetdata.dirfile(fname) as dfile:
 			return ids, read(dfile, rowcol)
 	else:
 		return ids, read(fname, rowcol)
@@ -171,10 +173,9 @@ def read_boresight(fname):
 	are performed. Returns [unix time,az (deg),el(deg)], flags."""
 	def read(dfile):
 		res = np.array([dfile.getdata("C_Time"),dfile.getdata("Enc_Az_Deg_Astro"),dfile.getdata("Enc_El_Deg")]), dfile.getdata("enc_flags")
-		dfile.raw_close()
 		return res
 	if isinstance(fname, basestring):
-		with dirfile(fname) as dfile:
+		with pyactgetdata.dirfile(fname) as dfile:
 			return read(dfile)
 	else:
 		return read(fname)

@@ -2,7 +2,7 @@ import numpy as np, time
 from enact import nmat_measure, actdata
 from enlib import utils, scan, nmat, resample, config
 
-config.default("cut_noise_whiteness", True, "Whether to apply the noise_cut or not")
+config.default("cut_noise_whiteness", False, "Whether to apply the noise_cut or not")
 config.default("cut_spikes", True, "Whether to apply the spike cut or not")
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 config.default("noise_model", "file", "Which noise model to use. Can be 'file' or 'jon'")
