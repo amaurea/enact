@@ -205,6 +205,7 @@ def calibrate_tod_real(data):
 def calibrate_tod_fourier(data):
 	"""Deconvolve instrument filters and time constants from TOD"""
 	require(data, ["tod", "tau", "srate"])
+	if data.tod.size == 0: return data
 	ft     = fft.rfft(data.tod)
 	freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
 	butter = filters.butterworth_filter(freqs)
