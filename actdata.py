@@ -234,6 +234,7 @@ config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
 	ndet, nsamp = d.ndet, d.nsamp
+	if ndet*nsamp == 0: return d
 	# Insert a cut into d if necessary
 	if "cut" not in d:
 		d += dataset.DataField("cut", rangelist.empty([ndet,nsamp]))
@@ -330,3 +331,16 @@ def offset_to_dazel(offs, azel):
 	dEl = np.arcsin(p[2])-el
 	dAz = -np.arctan2(p[1],p[0])
 	return np.array([dAz,dEl]).T
+
+def dazel_to_offset(dazel, azel):
+	"""Inverse function of offset_to_dazel"""
+	az, el = azel
+	dazel = np.asarray(dazel).T
+	p = np.array([np.cos(-dazel[0]),np.sin(-dazel[0]),np.sin(dazel[1]+el)])
+	norm = ((1-p[2]**2)/(p[0]**2+p[1]**2))**0.5
+	p[:2] *= norm
+	p = [np.sin(el)*p[0]-np.cos(el)*p[2],p[1], np.sin(el)*p[2]+np.cos(el)*p[0]]
+	x = np.arcsin(-p[0])
+	y = np.arctan2(-p[1],p[2])
+	y, x = x, y
+	return np.array([x,y]).T

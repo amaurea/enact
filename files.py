@@ -103,6 +103,30 @@ def read_cut(fname):
 			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
 	return oids, enlib.rangelist.Multirange(ocuts), offset
 
+def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
+	ndet, nsamp = cuts.shape
+	ntot = nrow*ncol
+	lines = [
+		"format = 'TODCuts'",
+		"format_version = 1",
+		"n_det = %d" % ntot,
+		"n_row = %d" % nrow,
+		"n_col = %d" % ncol,
+		"n_samp = %d" % nsamp,
+		"samp_offset = %d" % offset,
+		"END"]
+	detinds = np.zeros(ntot,dtype=int)
+	detinds[dets] = np.arange(len(dets))+1
+	for uid, di in enumerate(detinds):
+		row, col = uid/ncol, uid%ncol
+		if di == 0:
+			ranges = [[0,nsamp]]
+		else:
+			ranges = cuts[di-1].ranges
+		lines.append("%4d r%02dc%02d: " % (uid, row, col) + " ".join(["(%d,%d)" % tuple(r) for r in ranges]))
+	with open(fname, "w") as f:
+		f.write("\n".join(lines))
+
 def read_site(fname):
 	"""Given a filename or file, parse a file with key = value information and return
 	it as a Bunch."""
