@@ -314,6 +314,23 @@ def calibrate(data, operations=["boresight", "polangle", "point_offset", "fftlen
 
 # Helper functions
 
+# Rz(-az)Ry(pi/2-el)Rx(y)Ry(-x): What is the meaning of this operation?
+#
+# Ry(-x): Rotate detector pointing from (0,0,1) to about (x,0,1)
+# Rx(y):  Rotate detector pointing from (x,0,1) to about (x,y,1)
+# Ry(pi/2-el): Rotate from zenith to target elevation
+# Rx(-az): Rotate to target azimuth
+#
+# That makes sense. x and y are angular coordinates in a focalplane
+# centered coordinate system, with x,y being analogous to (dec,ra).
+# So if hor = [az,el] and bore=[bore_az,bore_el], then
+# [y,x] = coordinates.recenter(hor, np.concatenate([bore,bore*0]))
+# Yes, this works - we understand focalplane coordinates.
+#
+# For beam simulations I really need detector-centered coordinates.
+# Approximating these as xy - xy_det should be accurate to far
+# higher accuracy than our beam is known.
+
 def offset_to_dazel(offs, azel):
 	"""Convert from focalplane offsets to offsets in horizontal coordinates.
 	Corresponds to the rotation Rz(-az)Ry(pi/2-el)Rx(y)Ry(-x). Taken from
