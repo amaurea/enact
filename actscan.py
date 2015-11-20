@@ -10,7 +10,7 @@ config.default("tod_window", 0.0, "Number of samples to window the tod by on eac
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False):
-		self.fields = ["gain","polangle","tconst","cut","point_offsets","boresight","site","tod_shape","layout"]
+		self.fields = ["gain","polangle","tconst","cut","point_offsets","boresight","site","tod_shape","layout","beam","pointsrcs"]
 		if config.get("noise_model") == "file":
 			self.fields += ["noise"]
 		else:
@@ -31,6 +31,8 @@ class ACTScan(scan.Scan):
 		self.offsets[:,1:] = d.point_offset
 		self.cut       = d.cut.copy()
 		self.comps     = np.zeros([ndet,4])
+		self.beam      = d.beam
+		self.pointsrcs = d.pointsrcs
 		# negative U component because this is the top row of a positive
 		# rotation matrix [[c,-s],[s,c]].
 		self.comps[:,0] = 1

@@ -1,5 +1,5 @@
 import numpy as np, time
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs
 from enact import files, cuts, filters
 
 def try_read(method, desc, fnames, *args, **kwargs):
@@ -65,6 +65,12 @@ def read_noise(entry):
 		dataset.DataField("noise", data, dets=data.dets, det_index=0),
 		dataset.DataField("entry", entry)])
 
+def read_beam(entry):
+	beam = try_read(files.read_beam, "beam", entry.beam)
+	return dataset.DataSet([
+		dataset.DataField("beam", beam),
+		dataset.DataField("entry", entry)])
+
 def read_noise_cut(entry):
 	try: dets = try_read(files.read_noise_cut, "noise_cut", entry.noise_cut, id=entry.id)[entry.id]
 	except KeyError: raise errors.DataMissing("noise_cut id: " + entry.id)
@@ -92,6 +98,12 @@ def read_layout(entry):
 		dataset.DataField("layout", data),
 		dataset.DataField("entry", entry)])
 
+def read_pointsrcs(entry):
+	data = try_read(pointsrcs.read, "pointsrcs", entry.pointsrcs)
+	return dataset.DataSet([
+		dataset.DataField("pointsrcs", data),
+		dataset.DataField("entry", entry)])
+
 def read_tod_shape(entry, moby=False):
 	if moby: dets, nsamp = try_read(files.read_tod_moby, "tod_shape", entry.tod, shape_only=True)
 	else:    dets, nsamp = try_read(files.read_tod,      "tod_shape", entry.tod, shape_only=True)
@@ -112,7 +124,9 @@ readers = {
 		"tconst": read_tconst,
 		"cut": read_cut,
 		"point_offsets": read_point_offsets,
+		"pointsrcs": read_pointsrcs,
 		"layout": read_layout,
+		"beam": read_beam,
 		"site": read_site,
 		"noise": read_noise,
 		"noise_cut": read_noise_cut,
@@ -122,7 +136,7 @@ readers = {
 		"tod": read_tod
 	}
 
-def read(entry, fields=["layout","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","tod_shape","tod"], verbose=False):
+def read(entry, fields=["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","pointsrcs","tod_shape","tod"], verbose=False):
 	d = None
 	for field in fields:
 		t1 = time.time()
@@ -186,6 +200,14 @@ def calibrate_polangle(data):
 	data.polangle += np.pi/2
 	return data
 
+def calibrate_beam(data):
+	"""Make sure beam is equispaced. Convert radius to radians"""
+	require(data, ["beam"])
+	r, beam = data.beam
+	assert r[0] == 0, "Beam must start from 0 radius"
+	assert np.all(np.abs((r[1:]-r[:-1])/(r[1]-r[0])-1)<0.01), "Beam must be equispaced"
+	data.beam = np.array([r*utils.degree, beam])
+
 def calibrate_tod(data):
 	"""Apply gain to tod and deconvolve instrument filters"""
 	calibrate_tod_real(data)
@@ -234,7 +256,7 @@ config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
 	ndet, nsamp = d.ndet, d.nsamp
-	if ndet*nsamp == 0: return d
+	if not ndet or not nsamp: return d
 	# Insert a cut into d if necessary
 	if "cut" not in d:
 		d += dataset.DataField("cut", rangelist.empty([ndet,nsamp]))
@@ -285,6 +307,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 calibrators = {
 	"boresight":    calibrate_boresight,
 	"point_offset": calibrate_point_offset,
+	"beam":         calibrate_beam,
 	"polangle":     calibrate_polangle,
 	"autocut":      autocut,
 	"fftlen":       crop_fftlen,
@@ -293,7 +316,7 @@ calibrators = {
 	"tod_fourier":  calibrate_tod_fourier,
 }
 
-def calibrate(data, operations=["boresight", "polangle", "point_offset", "fftlen", "autocut", "tod"], strict=False, verbose=False):
+def calibrate(data, operations=["boresight", "polangle", "point_offset", "beam", "fftlen", "autocut", "tod"], strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
 	is True, then specifying a calibration operation that depends on a field

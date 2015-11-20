@@ -238,6 +238,11 @@ def read_pickup_cut(fname):
 		res[id].append([int(dir),int(hex),float(az1),float(az2),float(strength)])
 	return res
 
+def read_beam(fname):
+	"""Given a filename, read an equi-spaced radial beam profile.
+	The file should have format [r,b(r)]. [r,b(r)]"""
+	return np.loadtxt(fname).T
+
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""
