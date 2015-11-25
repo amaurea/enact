@@ -112,8 +112,8 @@ def read_tod_shape(entry, moby=False):
 		dataset.DataField("entry", entry)])
 
 def read_tod(entry, dets=None, moby=False):
-	if moby: dets, tod = try_read(files.read_tod_moby, "tod", entry.tod)
-	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod)
+	if moby: dets, tod = try_read(files.read_tod_moby, "tod", entry.tod, ids=dets)
+	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=dets)
 	return dataset.DataSet([
 		dataset.DataField("tod", tod, dets=dets, samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
 		dataset.DataField("entry", entry)])
