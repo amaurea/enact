@@ -6,7 +6,6 @@ config.default("cut_noise_whiteness", False, "Whether to apply the noise_cut or 
 config.default("cut_spikes", True, "Whether to apply the spike cut or not")
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 config.default("noise_model", "file", "Which noise model to use. Can be 'file' or 'jon'")
-config.default("tod_window", 0.0, "Number of samples to window the tod by on each end")
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False):
@@ -47,7 +46,7 @@ class ACTScan(scan.Scan):
 			self.noise = d.noise
 		else:
 			spikes = d.spikes[:2].T if "spikes" in d else None
-			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), window=d.srate*config.get("tod_window"), spikes=None)
+			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), spikes=spikes)
 		self.autocut = d.autocut if "autocut" in d else []
 		# Implementation details. d is our DataSet, which we keep around in
 		# because we need it to read tod consistently later. It will *not*
@@ -60,6 +59,7 @@ class ACTScan(scan.Scan):
 		# savings. I don't think allowing this should be a serious problem.
 		self.d = d
 		self.entry = entry
+		self.id = entry.id
 		self.sampslices = []
 	def get_samples(self, verbose=False):
 		"""Return the actual detector samples. Slow! Data is read from disk and
@@ -84,7 +84,7 @@ class ACTScan(scan.Scan):
 		tod = np.ascontiguousarray(tod)
 		return tod
 	def __repr__(self):
-		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.entry.id)
+		return self.__class__.__name__ + "[ndet=%d,nsamp=%d,id=%s]" % (self.ndet,self.nsamp,self.id)
 	def __getitem__(self, sel):
 		res, detslice, sampslice = self.getitem_helper(sel)
 		res.sampslices.append(sampslice)

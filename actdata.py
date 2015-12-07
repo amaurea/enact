@@ -40,7 +40,7 @@ def read_cut(entry):
 	dets, data, offset = try_read(files.read_cut, "cut", entry.cut)
 	samples = [offset, offset + data.shape[-1]]
 	return dataset.DataSet([
-		dataset.DataField("cut", data, dets=dets, det_index=0, samples=samples, sample_index=1),
+		dataset.DataField("cut", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
 		dataset.DataField("entry", entry)])
 
 def read_point_offsets(entry):
@@ -136,7 +136,15 @@ readers = {
 		"tod": read_tod
 	}
 
-def read(entry, fields=["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","pointsrcs","tod_shape","tod"], verbose=False):
+default_fields = ["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","pointsrcs","tod_shape","tod"]
+def read(entry, fields=None, exclude=None, verbose=False):
+	# Handle auto-stacking combo read transparently
+	if isinstance(entry, list) or isinstance(entry, tuple):
+		return read_combo(entry, fields=fields, exclude=exclude, verbose=verbose)
+	# The normal case for a 1d to below
+	if fields is None: fields = list(default_fields)
+	if exclude is None: exclude = []
+	for ex in exclude: fields.remove(ex)
 	d = None
 	for field in fields:
 		t1 = time.time()
@@ -149,6 +157,60 @@ def read(entry, fields=["layout","beam","gain","polangle","tconst","cut","point_
 		t2 = time.time()
 		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1)
 	return d
+
+def read_combo(entries, fields=None, exclude=None, verbose=False):
+	# Read in each scan individually
+	if fields is None: fields = list(default_fields)
+	if exclude is None: exclude = []
+	for ex in exclude: fields.remove(ex)
+	# We need layout and boresight for combo reading
+	if "layout" not in fields: fields = ["layout"] + fields
+	if "boresight" not in fields: fields = ["boresight"] + fields
+	ds = []
+	for entry in entries:
+		if verbose: print "reading %s" % entry.id
+		ds.append(read(entry, fields=fields, verbose=verbose))
+	if len(ds) == 1: return ds[0]
+	# Offset samples to align them, and make detector ids unique
+	det_offs = utils.cumsum([d.layout.ndet for d in ds])
+	offs_real = measure_offsets([d.boresight[0] for d in ds])
+	offs = np.round(offs_real).astype(int)
+	assert np.all(np.abs(offs-offs_real) < 0.1), "Non-integer sample offset in read_combo"
+	if verbose: print "offsets: " + ",".join([str(off) for off in offs])
+	if verbose: print "shifting"
+	for d, det_off, off in zip(ds, det_offs, offs):
+		d.shift(det_off, off)
+	# Find the common samples, as we must restrict to these before
+	# we can take the union
+	samples_list = np.array([d.samples for d in ds])
+	samples = np.array([np.max(samples_list[:,0]),np.min(samples_list[:,1])])
+	if verbose: print "restricting"
+	for d in ds: d.restrict(samples=samples)
+	# Ok, all datasets have the same sample range, and non-overlapping detectors.
+	# Merge into a union dataset
+	if verbose: print "union"
+	dtot = dataset.detector_union(ds)
+	# Detector layout cannot be automatically merged, so do it manually. We
+	# assume that all have the same rectangular layout with the same number
+	# of columns.
+	row_offs = utils.cumsum([d.layout.nrow for d in ds])
+	dtot.layout.rows = np.concatenate([d.layout.rows + off for d, off in zip(ds, row_offs)])
+	dtot.layout.cols = np.concatenate([d.layout.cols for d in ds])
+	dtot.layout.dark = np.concatenate([d.layout.dark for d in ds])
+	dtot.layout.pcb  = np.concatenate([d.layout.pcb  for d in ds])
+	dtot.layout.nrow = np.max(dtot.layout.rows)+1
+	dtot.layout.ncol = np.max(dtot.layout.cols)+1
+	dtot.layout.ndet = len(dtot.layout.rows)
+	return dtot
+
+def measure_offsets(times, nstep=10, dstep=1000, maxerr=0.1):
+	"""Find the number of samples each timeseries in times[:,nsamp] is ahread
+	of the first one."""
+	times = np.array([t[0:dstep*nstep:dstep] for t in times])
+	dt = np.median(times[:,1:]-times[:,:-1],1)/dstep
+	# how many samples later each one starts compared to the first
+	off = np.median(times-times[0],1)/dt
+	return off
 
 def require(data, fields):
 	for field in fields:
@@ -179,12 +241,15 @@ def calibrate_boresight(data):
 	data += dataset.DataField("srate", srate)
 	return data
 
-def crop_fftlen(data):
+config.default("fft_factors", "2,3,5,7,11,13", "Crop TOD lengths to the largest number with only the given list of factors. If the list includes 1, no cropping will happen.")
+def crop_fftlen(data, factors=None):
 	"""Slightly crop samples in order to make ffts faster. This should
 	be called at a point when the length won't be futher cropped by other
 	effects."""
 	if data.nsamp is None: raise errors.DataMissing("nsamp")
-	ncrop = fft.fft_len(data.nsamp)
+	factors = config.get("fft_factors", factors)
+	if isinstance(factors, basestring): factors = [int(w) for w in factors.split(",")]
+	ncrop = fft.fft_len(data.nsamp, factors=factors)
 	data += dataset.DataField("fftlen", samples=[data.samples[0],data.samples[0]+ncrop])
 	return data
 
@@ -200,6 +265,13 @@ def calibrate_polangle(data):
 	data.polangle += np.pi/2
 	return data
 
+config.default("pad_cuts", 0, "Number of samples by which to widen each cut range by")
+def calibrate_cut(data, n=None):
+	require(data, ["cut"])
+	n = config.get("pad_cuts", n)
+	data.cut = data.cut.widen(n)
+	return data
+
 def calibrate_beam(data):
 	"""Make sure beam is equispaced. Convert radius to radians"""
 	require(data, ["beam"])
@@ -207,6 +279,7 @@ def calibrate_beam(data):
 	assert r[0] == 0, "Beam must start from 0 radius"
 	assert np.all(np.abs((r[1:]-r[:-1])/(r[1]-r[0])-1)<0.01), "Beam must be equispaced"
 	data.beam = np.array([r*utils.degree, beam])
+	return data
 
 def calibrate_tod(data):
 	"""Apply gain to tod and deconvolve instrument filters"""
@@ -218,10 +291,16 @@ config.default("gapfill", "copy", "TOD gapfill method. Can be 'copy' or 'linear'
 def calibrate_tod_real(data):
 	"""Apply gain to tod, fill gaps and deslope"""
 	require(data, ["tod","gain","cut"])
+	#print data.tod.shape, data.samples
+	#print data.dets[:4]
+	#np.savetxt("test_enki1/tod_raw.txt", data.tod[0])
 	data.tod = data.tod * data.gain[:,None]
+	#np.savetxt("test_enki1/tod_gain.txt", data.tod[0])
 	gapfiller = {"copy":gapfill.gapfill_copy, "linear":gapfill.gapfill_linear}[config.get("gapfill")]
 	gapfiller(data.tod, data.cut, inplace=True)
+	#np.savetxt("test_enki1/tod_gapfill.txt", data.tod[0])
 	utils.deslope(data.tod, w=8, inplace=True)
+	#np.savetxt("test_enki1/tod_deslope.txt", data.tod[0])
 	return data
 
 def calibrate_tod_fourier(data):
@@ -234,6 +313,7 @@ def calibrate_tod_fourier(data):
 	for di in range(len(ft)):
 		ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
 	fft.irfft(ft, data.tod, normalize=True)
+	#np.savetxt("test_enki1/tod_detau.txt", data.tod[0])
 	del ft
 	return data
 
@@ -309,6 +389,7 @@ calibrators = {
 	"point_offset": calibrate_point_offset,
 	"beam":         calibrate_beam,
 	"polangle":     calibrate_polangle,
+	"cut":          calibrate_cut,
 	"autocut":      autocut,
 	"fftlen":       crop_fftlen,
 	"tod":          calibrate_tod,
@@ -316,13 +397,17 @@ calibrators = {
 	"tod_fourier":  calibrate_tod_fourier,
 }
 
-def calibrate(data, operations=["boresight", "polangle", "point_offset", "beam", "fftlen", "autocut", "tod"], strict=False, verbose=False):
+default_calib = ["boresight", "polangle", "point_offset", "beam", "cut", "fftlen", "autocut", "tod"]
+def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
 	is True, then specifying a calibration operation that depends on a field
 	that is not present in data raises a DataMissing exception. Otherwise,
 	these are silently ignored. strict=False is useful for applying all applicable
 	calibrations to a DataSet that only contains a subset of the data."""
+	if operations is None: operations = list(default_calib)
+	if exclude is None: exclude = []
+	for ex in exclude: operations.remove(ex)
 	for op in operations:
 		t1 = time.time()
 		status = 1

@@ -29,7 +29,7 @@ from enlib import nmat, utils,array_ops, fft, errors
 # array by sqrt(n).
 
 # Our main noise model
-def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, window=0):
+def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
 	srate is the sampling rate, dets is the list of detectors, shared specifies
@@ -85,11 +85,11 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, window=0):
 	if cut_bins is not None:
 		bins, E, V, Nu, vinds = apply_bin_cuts(bins, cut_bins, E, V, Nu, vinds)
 	if shared:
-		res = prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds, window=window)
+		res = prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds)
 	else:
 		# Expand V so we have one block of vectors per bin
 		V = [V[i] for i in vinds]
-		res = prepare_detvecs(Nu, V, E, bins, srate, dets, window=window)
+		res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
 
 def detvecs_simple(fourier, srate, dets=None):
@@ -221,7 +221,7 @@ def apply_bin_cuts(bins, cut_bins, E, V, Nu, vinds=None):
 		vinds2 = [len(V) if i < 0 else vinds[rmap[i]] for i in abmap]
 		return bins2, E2, V2, Nu2, vinds2
 
-def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets, window=0):
+def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets):
 	D = np.asarray(D)
 	if dets is None: dets = np.arange(D.shape[1])
 	assert len(dets) == D.shape[1]
@@ -229,9 +229,9 @@ def prepare_detvecs(D, Vlist, Elist, ibins, srate, dets, window=0):
 	etmp = np.concatenate([[0],np.cumsum(np.array([len(e) for e in Elist]))])
 	ebins= np.array([etmp[0:-1],etmp[1:]]).T
 	E, V = np.hstack(Elist), np.hstack(Vlist).T
-	return nmat.NmatDetvecs(D, V, E, fbins, ebins, dets, window=window)
+	return nmat.NmatDetvecs(D, V, E, fbins, ebins, dets)
 
-def prepare_sharedvecs(D, Vlist, Elist, ibins, srate, dets, vinds, window=0):
+def prepare_sharedvecs(D, Vlist, Elist, ibins, srate, dets, vinds):
 	"""Construct an NmatSharedvecs based on uncorrelated noise D[nbin,ndet],
 	correlated modes V[ngroup][nmode,ndet], mode amplitudes E[nbin][nmode],
 	integer bin start/stops ibins[nbin,2], sampling rate srate, detectors
@@ -246,7 +246,7 @@ def prepare_sharedvecs(D, Vlist, Elist, ibins, srate, dets, vinds, window=0):
 	vtmp = np.concatenate([[0],np.cumsum(np.array([len(v.T) for v in Vlist]))])
 	vbins= np.array([vtmp[i:i+2] for i in vinds])
 	E, V = np.hstack(Elist), np.hstack(Vlist).T
-	return nmat.NmatSharedvecs(D, V, E, fbins, ebins, vbins, dets, window=window)
+	return nmat.NmatSharedvecs(D, V, E, fbins, ebins, vbins, dets)
 
 def mycontiguous(a):
 	b = np.zeros(a.shape, a.dtype)
@@ -335,30 +335,22 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 def extend_list(a, n): return a + [a[-1]]*(n-len(a))
 
 class NmatBuildDelayed(nmat.NoiseMatrix):
-	def __init__(self, model="jon", window=0, spikes=None):
-		self.window = window
+	def __init__(self, model="jon", spikes=None):
 		self.model  = model
 		self.spikes = spikes
 	def update(self, tod, srate):
-		nmat.apply_window(tod, self.window)
 		try:
 			if self.model == "jon":
 				ft = fft.rfft(tod) * tod.shape[1]**-0.5
-				noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes, window=self.window)
+				noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes)
 			elif self.model == "white":
 				noise_model = nmat.NoiseMatrix()
 			else:
-				nmat.apply_window(tod, self.window, inverse=True)
 				raise ValueError("Unknown noise model '%s'" % self.model)
 		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
 			print "Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape)
 			noise_model = nmat.NmatNull()
-		# Undo our windowing of nmat
-		nmat.apply_window(tod, self.window, inverse=True)
 		return noise_model
 	def __getitem__(self, sel):
-		# Make sure window gets resized when we downsample
 		res, detslice, sampslice = self.getitem_helper(sel)
-		if sampslice.step is not None:
-			res.window /= sampslice.step
 		return res
