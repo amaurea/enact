@@ -409,11 +409,11 @@ def calibrate(data, nofft=False):
 		data.tod = data.tod * data.gain[:,None]
 		gapfiller = {"copy":gapfill.gapfill_copy, "linear":gapfill.gapfill_linear}[config.get("gapfill")]
 		gapfiller(data.tod, data.cut, inplace=True)
-		utils.deslope(data.tod, w=8, inplace=True)
-		#nmat.apply_window(data.tod, data.srate*config.get("tod_window"))
 
 		# Unapply instrument filters
 		if not nofft:
+			utils.deslope(data.tod, w=8, inplace=True)
+			#nmat.apply_window(data.tod, data.srate*config.get("tod_window"))
 			ft     = fft.rfft(data.tod)
 			freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
 			butter = filters.butterworth_filter(freqs)
