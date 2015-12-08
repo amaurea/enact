@@ -91,6 +91,39 @@ def pickup_cut(az, dets, pcut):
 		res = res + rangelist.Multirange(mycut)
 	return res
 
+config.default("cut_stationary_tol", 0.2, "Number of degrees the telescope must move before the scan is considered to have started. Also applies at the end of the tod.")
+def stationary_cut(az, tol=None):
+	"""Cut samples where the telescope isn't moving at the beginning
+	and end of the tod."""
+	tol = config.get("cut_stationary_tol", tol)*utils.degree
+	b1 = np.where(np.abs(az-az[0])>tol)[0]
+	b2 = np.where(np.abs(az-az[-1])>tol)[0]
+	if len(b1) == 0 or len(b2) == 0:
+		# Entire tod cut!
+		return rangelist.Rangelist.ones(len(az))
+	return rangelist.Rangelist([[0,b1[0]],[b2[-1],len(az)]],len(az))
+
+config.default("cut_tod_ends_nsec", 0.5, "Number of seconds to cut at each end of tod")
+def tod_end_cut(nsamp, srate, cut_secs=None):
+	"""Cut cut_secs seconds of data at each end of the tod"""
+	ncut = int(config.get("cut_tod_ends_nsec",cut_secs)*srate)
+	return rangelist.Rangelist([[0,ncut],[nsamp-ncut,nsamp]], nsamp)
+
+max_frac   = config.default("cut_mostly_cut_frac",   0.15, "Cut detectors with a higher fraction of cut samples than this.")
+max_nrange = config.default("cut_mostly_cut_nrange", 25, "Cut detectors with a larger number of cut ranges than this.")
+def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
+	"""Mark detectors with too many cuts or too large cuts as completely cut."""
+	max_frac   = config.get("cut_mostly_cut_frac",   max_frac)
+	max_nrange = config.get("cut_mostly_cut_nrange", max_nrange)
+	cut_samps  = cuts.sum(flat=False)
+	cut_nrange = np.array([len(c.ranges) for c in cuts.data])
+	bad = (cut_samps > cuts.shape[-1]*max_frac) | (cut_nrange > max_nrange)
+	ocuts = []
+	for b in bad:
+		if b: ocuts.append(rangelist.Rangelist.ones(cuts.shape[-1]))
+		else: ocuts.append(rangelist.Rangelist.empty(cuts.shape[-1]))
+	return rangelist.Multirange(ocuts)
+
 def test_cut(bore, frac=0.3, dfrac=0.05):
 	b  = bore[1:]
 	db = np.median(np.abs(b[:,1:]-b[:,:-1]),1)

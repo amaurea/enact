@@ -2,21 +2,22 @@
 import ast, numpy as np, enlib.rangelist, re
 from bunch import Bunch
 from enlib.utils import lines
-from enlib.zgetdata import dirfile
+from enlib import pyactgetdata, zgetdata
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
 	data = read_pylike_format(fname)
 	return np.array(data["det_uid"]), np.array(data["cal"])
 
-def read_gain_correction(fname):
+def read_gain_correction(fname, id=None):
 	"""Reads per-tod overall gain correction from file. Returns
 	{todID: val}."""
 	res = {}
 	for line in lines(fname):
-		if not line.startswith("#"):
-			id, value = line.split()
-			res[id] = float(value)
+		if line.startswith("#"): continue
+		if id and not line.startswith(id): continue
+		tod_id, value = line.split()
+		res[tod_id] = float(value)
 	return res
 
 def read_polangle(fname):
@@ -86,7 +87,10 @@ def read_cut(fname):
 			r, c, toks = int(m.group(1)), int(m.group(2)), m.group(3).split()
 			id = r*ncol+c
 			ranges = np.array([[int(i) for i in word[1:-1].split(",")] for word in toks])
-			nmax   = max(nmax,max([sub[1] for sub in ranges]))
+			nmax   = max(nmax,np.max(ranges[:,1]))
+			# Cap to nsamp if available
+			if nsamp: ranges[:,1] = np.minimum(nsamp, ranges[:,1])
+			ranges[:,0] = np.maximum(0, ranges[:,0])
 			ids.append(id)
 			cuts.append(ranges)
 			continue
@@ -99,6 +103,30 @@ def read_cut(fname):
 			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
 	return oids, enlib.rangelist.Multirange(ocuts), offset
 
+def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
+	ndet, nsamp = cuts.shape
+	ntot = nrow*ncol
+	lines = [
+		"format = 'TODCuts'",
+		"format_version = 1",
+		"n_det = %d" % ntot,
+		"n_row = %d" % nrow,
+		"n_col = %d" % ncol,
+		"n_samp = %d" % nsamp,
+		"samp_offset = %d" % offset,
+		"END"]
+	detinds = np.zeros(ntot,dtype=int)
+	detinds[dets] = np.arange(len(dets))+1
+	for uid, di in enumerate(detinds):
+		row, col = uid/ncol, uid%ncol
+		if di == 0:
+			ranges = [[0,nsamp]]
+		else:
+			ranges = cuts[di-1].ranges
+		lines.append("%4d r%02dc%02d: " % (uid, row, col) + " ".join(["(%d,%d)" % tuple(r) for r in ranges]))
+	with open(fname, "w") as f:
+		f.write("\n".join(lines))
+
 def read_site(fname):
 	"""Given a filename or file, parse a file with key = value information and return
 	it as a Bunch."""
@@ -110,7 +138,26 @@ def read_site(fname):
 		res[id] = ast.literal_eval(a.body[0].value)
 	return res
 
-def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
+def read_layout(fname):
+	"""Read the detector layout, returning a Bunch of with
+	ndet, nrow, ncol, rows, cols, darksquid, pcb."""
+	rows, cols, dark, pcb = [], [], [], []
+	with open(fname,"r") as f:
+		for line in f:
+			if line.startswith("#"): continue
+			toks = line.split()
+			r, c, d, p = int(toks[1]), int(toks[2]), int(toks[3])>0, toks[4]
+			rows.append(r)
+			cols.append(c)
+			dark.append(d)
+			pcb.append(p)
+	rows = np.array(rows)
+	cols = np.array(cols)
+	dark = np.array(dark)
+	pcb  = np.array(pcb)
+	return Bunch(rows=rows, cols=cols, dark=dark, pcb=pcb, nrow=np.max(rows)+1, ncol=np.max(cols)+1, ndet=len(rows))
+
+def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
 	"""Given a filename or dirfile, reads the time ordered data from the file,
 	returning ids,data. If the ids argument is specified, only those ids will
 	be retrieved. The mapping argument defines the mapping between ids and
@@ -122,22 +169,25 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
 	rowcol = ids if ids.ndim == 2 else np.asarray(mapping(ids))
 	def read(dfile, rowcol):
 		reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
-		nsamp = dfile.spf("tesdatar%02dc%02d" % tuple(reference))*dfile.nframes
+		nsamp = len(dfile.getdata("tesdatar%02dc%02d" % tuple(reference)))
+		if shape_only: return nsamp
 		res   = np.empty([rowcol.shape[1],nsamp],dtype=np.int32)
 		for i, (r,c) in enumerate(rowcol.T):
 			# The four lowest bits are status flags
 			res[i] = dfile.getdata("tesdatar%02dc%02d" % (r,c)) >> 4
-			dfile.raw_close()
 		return res
 	if isinstance(fname, basestring):
-		with dirfile(fname) as dfile:
+		with pyactgetdata.dirfile(fname) as dfile:
 			return ids, read(dfile, rowcol)
 	else:
 		return ids, read(fname, rowcol)
 
-def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32):
+def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
 	import moby2
 	if ids is None: ids = np.arange(ndet)
+	if shape_only:
+		foo = moby2.scripting.get_tod({'filename': fname, 'det_uid':ids[:1]})
+		return ids, foo.data.size
 	tod = moby2.scripting.get_tod({'filename': fname, 'det_uid':ids})
 	return ids, tod.data
 
@@ -147,10 +197,9 @@ def read_boresight(fname):
 	are performed. Returns [unix time,az (deg),el(deg)], flags."""
 	def read(dfile):
 		res = np.array([dfile.getdata("C_Time"),dfile.getdata("Enc_Az_Deg_Astro"),dfile.getdata("Enc_El_Deg")]), dfile.getdata("enc_flags")
-		dfile.raw_close()
 		return res
 	if isinstance(fname, basestring):
-		with dirfile(fname) as dfile:
+		with pyactgetdata.dirfile(fname) as dfile:
 			return read(dfile)
 	else:
 		return read(fname)
@@ -167,12 +216,13 @@ def read_spikes(fname):
 	good = a[5] != 0
 	return a[:,good][[4,5,2]]
 
-def read_noise_cut(fname):
+def read_noise_cut(fname, id=None):
 	"""Given a filename, reads the set of detectors to cut for each tod,
 	returning it as a dictionary of id:detlist."""
 	res = {}
 	for line in lines(fname):
 		if line[0] == '#': continue
+		if id and not line.startswith(id): continue
 		toks = line.split()
 		res[toks[0]] = np.array([int(w) for w in toks[2:]],dtype=np.int32)
 	return res
@@ -187,6 +237,11 @@ def read_pickup_cut(fname):
 		if id not in res: res[id] = []
 		res[id].append([int(dir),int(hex),float(az1),float(az2),float(strength)])
 	return res
+
+def read_beam(fname):
+	"""Given a filename, read an equi-spaced radial beam profile.
+	The file should have format [r,b(r)]. [r,b(r)]"""
+	return np.loadtxt(fname).T
 
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
