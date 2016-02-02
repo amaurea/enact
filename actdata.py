@@ -92,6 +92,11 @@ def read_boresight(entry, moby=False):
 		dataset.DataField("flags",     flags,samples=[0,flags.shape[0]],sample_index=0),
 		dataset.DataField("entry",     entry)])
 
+def read_hwp(entry):
+	hwp = try_read(files.read_hwp, "hwp", entry.tod)
+	return dataset.DataSet([
+		dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)])
+
 def read_layout(entry):
 	data = try_read(files.read_layout, "layout", entry.layout)
 	return dataset.DataSet([
@@ -133,7 +138,8 @@ readers = {
 		"spikes": read_spikes,
 		"boresight": read_boresight,
 		"tod_shape": read_tod_shape,
-		"tod": read_tod
+		"tod": read_tod,
+		"hwp": read_hwp,
 	}
 
 default_fields = ["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","pointsrcs","tod_shape","tod"]
@@ -241,6 +247,33 @@ def calibrate_boresight(data):
 	data += dataset.DataField("srate", srate)
 	return data
 
+def calibrate_hwp(data):
+	"""Calibrate the hwp readout by converting it to radians and
+	deglitching it. The deglitching currently involves estimating
+	a rotation rate, and recalculating everyting assuming a constant
+	ratation speed."""
+	# Estimate rotation rate
+	hwp = data.hwp*(2*np.pi/2**16)
+	data.hwp = hwp
+	return hwp
+	delta = hwp[1:]-hwp[:-1]
+	delta = delta[delta!=0]
+	med = np.median(delta)
+	# Exclude outliers before computing mean
+	bad = np.abs(delta-med) > med*0.2
+	delta = delta[~bad]
+	# Reestimate the rotation rate
+	rate = np.mean(delta)
+	print rate
+	#rate = utils.medmean(hwp[1:]-hwp[:-1])
+	fixed = np.arange(len(hwp))*rate
+	# Find the best absolute value
+	residual = utils.rewind(hwp-fixed)
+	off = utils.medmean(residual)
+	fixed += off
+	data.hwp = fixed
+	return data
+
 config.default("fft_factors", "2,3,5,7,11,13", "Crop TOD lengths to the largest number with only the given list of factors. If the list includes 1, no cropping will happen.")
 def crop_fftlen(data, factors=None):
 	"""Slightly crop samples in order to make ffts faster. This should
@@ -339,7 +372,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	if not ndet or not nsamp: return d
 	# Insert a cut into d if necessary
 	if "cut" not in d:
-		d += dataset.DataField("cut", rangelist.empty([ndet,nsamp]))
+		d += dataset.DataField("cut", rangelist.Multirange.empty(ndet,nsamp))
 	# insert an autocut datafield, to keep track of how much data each
 	# automatic cut cost us
 	d += dataset.DataField("autocut", [])
@@ -395,9 +428,10 @@ calibrators = {
 	"tod":          calibrate_tod,
 	"tod_real":     calibrate_tod_real,
 	"tod_fourier":  calibrate_tod_fourier,
+	"hwp":          calibrate_hwp,
 }
 
-default_calib = ["boresight", "polangle", "point_offset", "beam", "cut", "fftlen", "autocut", "tod"]
+default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
