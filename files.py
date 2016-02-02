@@ -209,6 +209,27 @@ def read_boresight_moby(fname):
 	tod = moby2.scripting.get_tod({'filename': fname, 'det_uid':[],'read_data':False})
 	return np.array([tod.ctime, tod.az*180/np.pi, tod.alt*180/np.pi]), tod.enc_flags
 
+def read_hwp(fname):
+	"""Given a filename or a dirfile, reads the half-wave-plate angle. May
+	move this into read_boresight later, as it belongs with the other fields
+	there."""
+	def read(dfile):
+		toks = dfile.fname.split(".")
+		array = toks.pop()
+		if array == "zip":
+			array = toks.pop()
+		field  = "hwp_pa%s_ang" % array[-1]
+		if field in dfile.fields:
+			return dfile.getdata(field)
+		else:
+			_, nsamp = read_tod(dfile, shape_only=True)
+			return np.zeros(nsamp,dtype=np.int16)
+	if isinstance(fname, basestring):
+		with pyactgetdata.dirfile(fname) as dfile:
+			return read(dfile)
+	else:
+		return read(fname)
+
 def read_spikes(fname):
 	"""Given a filename, reads the start, end and amplitude of the spikes described
 	in the file. Spikes without start/end are ignored."""
