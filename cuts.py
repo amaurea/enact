@@ -1,7 +1,7 @@
 """This module implements extra, dynamic data cuts for ACT data."""
 import numpy as np, time
 from enlib.resample import resample_bin
-from enlib import rangelist, utils, config, coordinates, array_ops
+from enlib import rangelist, utils, config, coordinates, array_ops, pmat
 
 config.default("cut_turnaround_step", 20, "Smoothing length for turnaround cut. Pointing will be downsampled by this number before acceleration is computed.")
 config.default("cut_turnaround_lim",   5, "Acceleration threshold for turnaround cut in units of standard deviations of the acceleration.")
@@ -123,6 +123,25 @@ def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
 		if b: ocuts.append(rangelist.Rangelist.ones(cuts.shape[-1]))
 		else: ocuts.append(rangelist.Rangelist.empty(cuts.shape[-1]))
 	return rangelist.Multirange(ocuts)
+
+config.default("cut_point_srcs_threshold", 20, "Signal threshold to use for point source cut. Areas where the source is straonger than this in uK will be cut.")
+def point_source_cut(d, srcs, threshold=None):
+	threshold = config.get("cut_point_srcs_threshold", threshold)
+	# Sort-of-circular dependency here. I don't like
+	# how actdata datasets are incompatible with scans.
+	# Should I just replace scans with actdata objects?
+	import actscan
+	# Simulate sources
+	tod  = np.zeros((d.ndet,d.nsamp), np.float32)
+	srcs = srcs.astype(np.float64)
+	scan = actscan.ACTScan(d.entry, d=d)
+	psrc = pmat.PmatPtsrc2(scan, srcs)
+	psrc.forward(tod, srcs)
+	# Use them to define mask
+	cuts = []
+	for t in tod:
+		cuts.append(rangelist.Rangelist(t > threshold))
+	return rangelist.Multirange(cuts)
 
 def test_cut(bore, frac=0.3, dfrac=0.05):
 	b  = bore[1:]

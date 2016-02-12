@@ -104,7 +104,7 @@ def read_layout(entry):
 		dataset.DataField("entry", entry)])
 
 def read_pointsrcs(entry):
-	data = try_read(pointsrcs.read, "pointsrcs", entry.pointsrcs)
+	data = try_read(pointsrcs.read, "pointsrcs", entry.pointsrcs, exact=False)
 	return dataset.DataSet([
 		dataset.DataField("pointsrcs", data),
 		dataset.DataField("entry", entry)])
@@ -252,6 +252,7 @@ def calibrate_hwp(data):
 	deglitching it. The deglitching currently involves estimating
 	a rotation rate, and recalculating everyting assuming a constant
 	ratation speed."""
+	require(data, ["hwp"])
 	# Estimate rotation rate
 	hwp = data.hwp*(2*np.pi/2**16)
 	data.hwp = hwp
@@ -264,7 +265,6 @@ def calibrate_hwp(data):
 	delta = delta[~bad]
 	# Reestimate the rotation rate
 	rate = np.mean(delta)
-	print rate
 	#rate = utils.medmean(hwp[1:]-hwp[:-1])
 	fixed = np.arange(len(hwp))*rate
 	# Find the best absolute value
@@ -359,6 +359,7 @@ config.default("cut_pickup",     False, "Whether to apply the pickup cut.")
 config.default("cut_stationary", True,  "Whether to apply the stationary ends cut")
 config.default("cut_tod_ends",   True,  "Whether to apply the tod ends cut")
 config.default("cut_mostly_cut", True,  "Whether to apply the mostly cut detector cut")
+config.default("cut_point_srcs", False, "Whether to apply the point source cut")
 # These cuts are always active, but can be effectively based on the parameter value
 config.default("cut_max_frac",    0.50, "Cut whole tod if more than this fraction is autocut.")
 config.default("cut_tod_mindur",  3.75, "Minimum duration of tod in minutes")
@@ -397,6 +398,12 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		addcut("pickup",cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut))
 	if config.get("cut_mostly_cut"):
 		addcut("mostly_cut", cuts.cut_mostly_cut_detectors(d.cut))
+	if config.get("cut_point_srcs"):
+		params = pointsrcs.src2param(d.pointsrcs)
+		params[:,5:7] = 1
+		params[:,7]   = 0
+		c = cuts.point_source_cut(d, params)
+		addcut("point_srcs", c)
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	# Get rid of completely cut detectors
