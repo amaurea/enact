@@ -92,10 +92,33 @@ def read_boresight(entry, moby=False):
 		dataset.DataField("flags",     flags,samples=[0,flags.shape[0]],sample_index=0),
 		dataset.DataField("entry",     entry)])
 
+#def read_hwp(entry):
+#	hwp = try_read(files.read_hwp, "hwp", entry.tod)
+#	return dataset.DataSet([
+#		dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)])
+
 def read_hwp(entry):
-	hwp = try_read(files.read_hwp, "hwp", entry.tod)
-	return dataset.DataSet([
-		dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)])
+	dummy = dataset.DataSet([
+		dataset.DataField("hwp", 0),
+		dataset.DataField("hwp_id", "none")])
+	epochs = try_read(files.read_hwp_epochs, "hwp_epochs", entry.hwp_epochs)
+	t, _, ar = entry.id.split(".")
+	t = float(t)
+	if ar not in epochs: return dummy
+	for epoch in epochs[ar]:
+		if t >= epoch[0] and t < epoch[1]:
+			# Ok, the HWP was active during this period. So our data is missing
+			# if we can't read it.
+			status = try_read(files.read_hwp_status, "hwp_status", entry.hwp_status)
+			if entry.id not in status or status[entry.id] != 1:
+				raise errors.DataMissing("Missing HWP angles!")
+			# Try to read the angles themselves
+			hwp = try_read(files.read_hwp_cleaned, "hwp_angles", entry.hwp)
+			return dataset.DataSet([
+				dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0),
+				dataset.DataField("hwp_id", epoch[2])])
+	# Not in any epoch, so return 0 hwp angle (which effectively turns it off)
+	return dummy
 
 def read_layout(entry):
 	data = try_read(files.read_layout, "layout", entry.layout)
@@ -142,7 +165,7 @@ readers = {
 		"hwp": read_hwp,
 	}
 
-default_fields = ["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","pointsrcs","tod_shape","tod"]
+default_fields = ["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs","tod_shape","tod"]
 def read(entry, fields=None, exclude=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
@@ -248,30 +271,15 @@ def calibrate_boresight(data):
 	return data
 
 def calibrate_hwp(data):
-	"""Calibrate the hwp readout by converting it to radians and
-	deglitching it. The deglitching currently involves estimating
-	a rotation rate, and recalculating everyting assuming a constant
-	ratation speed."""
-	require(data, ["hwp"])
-	# Estimate rotation rate
-	hwp = data.hwp*(2*np.pi/2**16)
-	data.hwp = hwp
-	return hwp
-	delta = hwp[1:]-hwp[:-1]
-	delta = delta[delta!=0]
-	med = np.median(delta)
-	# Exclude outliers before computing mean
-	bad = np.abs(delta-med) > med*0.2
-	delta = delta[~bad]
-	# Reestimate the rotation rate
-	rate = np.mean(delta)
-	#rate = utils.medmean(hwp[1:]-hwp[:-1])
-	fixed = np.arange(len(hwp))*rate
-	# Find the best absolute value
-	residual = utils.rewind(hwp-fixed)
-	off = utils.medmean(residual)
-	fixed += off
-	data.hwp = fixed
+	"""Convert hwp from degrees to radians, and expand it to
+	the full samples in data, since it might have dummy values if
+	the hwp was not actually active for this tod."""
+	require(data, ["hwp","hwp_id"])
+	data.hwp = data.hwp * utils.degree
+	if data.hwp_id == "none" and data.nsamp:
+		del data.hwp
+		hwp = np.zeros(data.nsamp)
+		data += dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)
 	return data
 
 config.default("fft_factors", "2,3,5,7,11,13", "Crop TOD lengths to the largest number with only the given list of factors. If the list includes 1, no cropping will happen.")

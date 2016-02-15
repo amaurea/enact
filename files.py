@@ -209,7 +209,7 @@ def read_boresight_moby(fname):
 	tod = moby2.scripting.get_tod({'filename': fname, 'det_uid':[],'read_data':False})
 	return np.array([tod.ctime, tod.az*180/np.pi, tod.alt*180/np.pi]), tod.enc_flags
 
-def read_hwp(fname):
+def read_hwp_raw(fname):
 	"""Given a filename or a dirfile, reads the half-wave-plate angle. May
 	move this into read_boresight later, as it belongs with the other fields
 	there."""
@@ -229,6 +229,32 @@ def read_hwp(fname):
 			return read(dfile)
 	else:
 		return read(fname)
+
+def read_hwp_status(fname):
+	res = {}
+	with open(fname, "r") as f:
+		for line in f:
+			if line.startswith("#"): continue
+			id, status = line.split()[:2]
+			res[id] = int(status)
+	return res
+
+def read_hwp_epochs(fname):
+	res = {}
+	amap = {"PA1": "ar1", "PA2": "ar2", "PA3": "ar3"}
+	with open(fname, "r") as f:
+		for line in f:
+			pa, name, t1, t2 = line.split()[:4]
+			ar = amap[pa]
+			if ar not in res: res[ar] = []
+			res[ar].append([float(t1),float(t2),name])
+	return res
+
+def read_hwp_cleaned(fname):
+	"""Given a filename to an uncompressed dirfile containing hwp_angle_cleaned
+	data as produced by Marius, return the hwp samples in degrees."""
+	with zgetdata.dirfile(fname) as dfile:
+		return dfile.getdata("hwp_angle_cleaned")
 
 def read_spikes(fname):
 	"""Given a filename, reads the start, end and amplitude of the spikes described
