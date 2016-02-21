@@ -254,7 +254,8 @@ def read_hwp_cleaned(fname):
 	"""Given a filename to an uncompressed dirfile containing hwp_angle_cleaned
 	data as produced by Marius, return the hwp samples in degrees."""
 	with zgetdata.dirfile(fname) as dfile:
-		return dfile.getdata("hwp_angle_cleaned")
+		nsamp = dfile.eof('hwp_angle_cleaned')
+		return dfile.getdata("hwp_angle_cleaned", zgetdata.FLOAT32, num_samples=nsamp)
 
 def read_spikes(fname):
 	"""Given a filename, reads the start, end and amplitude of the spikes described

@@ -1,4 +1,5 @@
 import numpy as np, time
+from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs
 from enact import files, cuts, filters
 
@@ -256,7 +257,9 @@ def calibrate_boresight(data):
 	# Convert angles to radians
 	data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
-	bad = (data.flags!=0)*(data.flags!=0x10)
+	bad_flag = (data.flags!=0)*(data.flags!=0x10)
+	bad_value= find_boresight_jumps(data.boresight)
+	bad = bad_flag | bad_value
 	#bad += srate_mask(data.boresight[0])
 	# Interpolate through bad regions. For long regions, this won't
 	# work, so these should be cut.
@@ -518,3 +521,12 @@ def dazel_to_offset(dazel, azel):
 	y = np.arctan2(-p[1],p[2])
 	y, x = x, y
 	return np.array([x,y]).T
+
+def find_boresight_jumps(bore, width=30, tol=0.03):
+	# median filter array to get reference behavior
+	bad = np.zeros(bore.shape[-1],dtype=bool)
+	width = int(width)/2*2+1
+	for b in bore:
+		fb = signal.medfilt(b, width)
+		bad |= np.abs(b-fb) > tol
+	return bad
