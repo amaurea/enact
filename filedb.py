@@ -1,5 +1,5 @@
-import numpy as np, re, bunch, shlex, datetime, pipes, os
-from enlib import filedb, config
+import numpy as np, re, shlex, datetime, pipes, os
+from enlib import filedb, config, bunch
 from enact.todinfo import TODDB
 
 def id2ts(id): return int(id[:id.index(".")])

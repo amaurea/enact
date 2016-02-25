@@ -1,8 +1,7 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re
-from bunch import Bunch
 from enlib.utils import lines
-from enlib import pyactgetdata, zgetdata
+from enlib import pyactgetdata, zgetdata, bunch
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -130,7 +129,7 @@ def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
 def read_site(fname):
 	"""Given a filename or file, parse a file with key = value information and return
 	it as a Bunch."""
-	res = Bunch()
+	res = bunch.Bunch()
 	for line in lines(fname):
 		if line.isspace(): continue
 		a = ast.parse(line)
@@ -155,7 +154,7 @@ def read_layout(fname):
 	cols = np.array(cols)
 	dark = np.array(dark)
 	pcb  = np.array(pcb)
-	return Bunch(rows=rows, cols=cols, dark=dark, pcb=pcb, nrow=np.max(rows)+1, ncol=np.max(cols)+1, ndet=len(rows))
+	return bunch.Bunch(rows=rows, cols=cols, dark=dark, pcb=pcb, nrow=np.max(rows)+1, ncol=np.max(cols)+1, ndet=len(rows))
 
 def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
 	"""Given a filename or dirfile, reads the time ordered data from the file,

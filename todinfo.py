@@ -27,8 +27,7 @@ Here are some examples in the context of actpol analysis
  8. deep6,el>50,pwv<1        all deep6 files with el > 50 degrees and pwv < 1 mm
  9. deep6,pwv<2:pwv[0/2]     the lowest half of the files with pwv < 2 mm for deep6"""
 import shlex, numpy as np, hashlib
-from enlib import utils
-from bunch import Bunch
+from enlib import utils, bunch
 
 def id2hash(id):
 	toks = id.split(".")
@@ -60,7 +59,7 @@ class TODDB:
 				filespec = parse_todinfofile(filespec)
 			fieldnames = ["id","hour","el","az","pwv","status"]
 			fieldtypes = [str,float,float,float,float,int]
-			self.fields = Bunch({n:[] for n in fieldnames})
+			self.fields = bunch.Bunch({n:[] for n in fieldnames})
 			self.tags = []
 			for fname, ftags in filespec.items():
 				ftags = set(ftags)
@@ -106,7 +105,7 @@ class TODDB:
 	def __getitem__(self, q):
 		if isinstance(q, (int,long)):
 			res = TODinfo()
-			res.fields = Bunch()
+			res.fields = bunch.Bunch()
 			for f in self.fields:
 				res.fields[f] = self.fields[f][q]
 			res.tags = self.tags[q]
@@ -159,7 +158,8 @@ def query_db(db, query):
 				locs = np.__dict__.copy()
 				locs["int"] = np.int0
 				locs["float"] = np.float_
-				db = db.select_inds(np.where(eval(tagexpr, db.fields.copy(), locs))[0])
+				globs = db.fields._dict.copy()
+				db = db.select_inds(np.where(eval(tagexpr, globs, locs))[0])
 			except (SyntaxError, NameError, AttributeError):
 				subtoks = []
 				for tok in tagexpr.split("+"):

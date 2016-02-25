@@ -96,12 +96,15 @@ def read_boresight(entry, moby=False):
 #def read_hwp(entry):
 #	hwp = try_read(files.read_hwp, "hwp", entry.tod)
 #	return dataset.DataSet([
-#		dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)])
+#		dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0),
+#		dataset.DataField("hwp_id", ])
 
+config.default("hwp_fallback", "none", "How to handle missing HWP data. 'none' skips the tod (it it is supposed to have hwp data), while 'raw' falls back on the native hwp data.")
 def read_hwp(entry):
 	dummy = dataset.DataSet([
 		dataset.DataField("hwp", 0),
-		dataset.DataField("hwp_id", "none")])
+		dataset.DataField("hwp_id", "none"),
+		dataset.DataField("hwp_source", "none")])
 	epochs = try_read(files.read_hwp_epochs, "hwp_epochs", entry.hwp_epochs)
 	t, _, ar = entry.id.split(".")
 	t = float(t)
@@ -110,14 +113,25 @@ def read_hwp(entry):
 		if t >= epoch[0] and t < epoch[1]:
 			# Ok, the HWP was active during this period. So our data is missing
 			# if we can't read it.
-			status = try_read(files.read_hwp_status, "hwp_status", entry.hwp_status)
-			if entry.id not in status or status[entry.id] != 1:
-				raise errors.DataMissing("Missing HWP angles!")
+			try:
+				status = try_read(files.read_hwp_status, "hwp_status", entry.hwp_status)
+			except errors.DataMissing as e:
+				status = None
+			if status is None or entry.id not in status or status[entry.id] != 1:
+				if config.get("hwp_fallback") == "raw":
+					hwp = try_read(files.read_hwp_raw, "hwp_raw_angles", entry.tod)
+					return dataset.DataSet([
+						dataset.DataField("hwp", hwp, samples=[0, hwp.size], sample_index=0),
+						dataset.DataField("hwp_id", epoch[2]),
+						dataset.DataField("hwp_source", "raw")])
+				else:
+					raise e if status is None else errors.DataMissing("Missing HWP angles!")
 			# Try to read the angles themselves
 			hwp = try_read(files.read_hwp_cleaned, "hwp_angles", entry.hwp)
 			return dataset.DataSet([
 				dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0),
-				dataset.DataField("hwp_id", epoch[2])])
+				dataset.DataField("hwp_id", epoch[2]),
+				dataset.DataField("hwp_source","cleaned")])
 	# Not in any epoch, so return 0 hwp angle (which effectively turns it off)
 	return dummy
 
@@ -278,7 +292,10 @@ def calibrate_hwp(data):
 	the full samples in data, since it might have dummy values if
 	the hwp was not actually active for this tod."""
 	require(data, ["hwp","hwp_id"])
-	data.hwp = data.hwp * utils.degree
+	if data.hwp_source == "raw":
+		data.hwp = data.hwp * (2*np.pi/2**16)
+	else:
+		data.hwp = data.hwp * utils.degree
 	if data.hwp_id == "none" and data.nsamp:
 		del data.hwp
 		hwp = np.zeros(data.nsamp)
