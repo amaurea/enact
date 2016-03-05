@@ -1,6 +1,6 @@
 import numpy as np, time
 from enact import nmat_measure, actdata
-from enlib import utils, scan, nmat, resample, config
+from enlib import utils, scan, nmat, resample, config, errors
 
 config.default("cut_noise_whiteness", False, "Whether to apply the noise_cut or not")
 config.default("cut_spikes", True, "Whether to apply the spike cut or not")
@@ -9,7 +9,7 @@ config.default("noise_model", "file", "Which noise model to use. Can be 'file' o
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False):
-		self.fields = ["gain","polangle","tconst","cut","point_offsets","boresight","site","tod_shape","layout","beam","pointsrcs"]
+		self.fields = ["gain","polangle","tconst","hwp","cut","point_offsets","boresight","site","tod_shape","layout","beam","pointsrcs"]
 		if config.get("noise_model") == "file":
 			self.fields += ["noise"]
 		else:
@@ -21,6 +21,7 @@ class ACTScan(scan.Scan):
 			d = actdata.read(entry, self.fields, verbose=verbose)
 			actdata.calibrate(d, verbose=verbose)
 			d.restrict(dets=d.dets[subdets])
+		if d.ndet == 0 or d.nsamp == 0: raise errors.DataMissing("No data in scan")
 		ndet = d.ndet
 		# Necessary components for Scan interface
 		self.mjd0      = utils.ctime2mjd(d.boresight[0,0])
@@ -38,6 +39,13 @@ class ACTScan(scan.Scan):
 		self.comps[:,1] = np.cos(+2*d.polangle)
 		self.comps[:,2] = np.sin(-2*d.polangle)
 		self.comps[:,3] = 0
+		# Set up the hwp rotation matrix per sample
+		#print "moo hwp"
+		#d.hwp *= -1
+		self.hwp = d.hwp
+		self.hwp_phase = np.zeros([len(self.boresight),2])
+		self.hwp_phase[:,0] = np.cos(4*d.hwp)
+		self.hwp_phase[:,1] = np.sin(4*d.hwp)
 		self.dets  = d.dets
 		self.dgrid = (d.layout.nrow, d.layout.ncol)
 		self.sys = "hor"

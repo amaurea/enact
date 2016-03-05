@@ -269,6 +269,7 @@ def calibrate_boresight(data):
 	the sampling rate."""
 	require(data, ["boresight","flags"])
 	# Convert angles to radians
+	if data.nsamp in [0, None]: raise errors.DataMissing("nsamp")
 	data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
 	bad_flag = (data.flags!=0)*(data.flags!=0x10)
@@ -348,10 +349,11 @@ def calibrate_tod(data):
 	calibrate_tod_fourier(data)
 	return data
 
-config.default("gapfill", "copy", "TOD gapfill method. Can be 'copy' or 'linear'")
+config.default("gapfill", "linear", "TOD gapfill method. Can be 'copy' or 'linear'")
 def calibrate_tod_real(data):
 	"""Apply gain to tod, fill gaps and deslope"""
 	require(data, ["tod","gain","cut"])
+	if data.tod.size == 0: raise errors.DataMissing("No tod samples")
 	#print data.tod.shape, data.samples
 	#print data.dets[:4]
 	#np.savetxt("test_enki1/tod_raw.txt", data.tod[0])
@@ -466,7 +468,7 @@ calibrators = {
 	"hwp":          calibrate_hwp,
 }
 
-default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod"]
+default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict

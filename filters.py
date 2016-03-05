@@ -2,10 +2,10 @@
 are applied to the TOD by the ACT hardware."""
 import numpy as np
 
-def tconst_filter(freq, f3db):
+def tconst_filter(freq, tau):
 	"""Return the fourier space representation of the effect of
 	detector time constants, for the given frequensies."""
-	return 1/(2*np.pi*1j*freq*f3db+1)
+	return 1/(2*np.pi*1j*freq*tau+1)
 
 def butterworth_filter(freq):
 	"""Returns the fourier space representation of the

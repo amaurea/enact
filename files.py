@@ -35,13 +35,39 @@ def read_polangle(fname):
 		res.append(ang)
 	return np.array(ids), np.array(res)
 
+#def read_tconst(fname):
+#	"""Reads time constants from file, discarding those marked bad.
+#	Returns format id,val"""
+#	res  = np.loadtxt(fname).T
+#	good = res[1]>0
+#	res  = res[:2,good]
+#	return res[0].astype(int), res[1]
+
 def read_tconst(fname):
-	"""Reads time constants from file, discarding those marked bad.
-	Returns format id,val"""
-	res  = np.loadtxt(fname).T
-	good = res[1]>0
-	res  = res[:2,good]
-	return res[0].astype(int), res[1]
+	"""Reads time constants from file in one of two formats:
+	[uid,tau,_] and [uid,row,col,f3db,std]. Values of 0 are taken
+	to indicate a bad value, and are discarded. Returns dets, taus,
+	regardless of whether the input was taus or f3dbs."""
+	dets, taus = [], []
+	with open(fname, "r") as f:
+		for line in f:
+			if line.startswith('#'): continue
+			toks = line.split()
+			if len(toks) == 0: continue
+			if len(toks) == 3:
+				det, tau = int(toks[0]), float(toks[1])
+				if tau > 0:
+					dets.append(det)
+					taus.append(tau)
+			elif len(toks) == 5:
+				det, f3db = int(toks[0]), float(toks[3])
+				if f3db > 0:
+					tau = 1/(2*np.pi*f3db)
+					dets.append(det)
+					taus.append(tau)
+			else:
+				raise IOError
+	return np.array(dets), np.array(taus)
 
 def read_point_template(fname):
 	"""Reads the per-detector pointing offsets, returning it in the form id,[[dx,dy]]."""
