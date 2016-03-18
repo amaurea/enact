@@ -164,7 +164,11 @@ def query_db(db, query):
 				subtoks = []
 				for tok in tagexpr.split("+"):
 					if tok[0] == "@":
-						subtoks += [line.split()[0] for line in open(tagexpr[1:],"r")]
+						for line in open(tagexpr[1:],"r"):
+							toks = line.split()
+							if len(toks) == 0 or toks[0][0] == "#": continue
+							subtoks.append(toks[0])
+						#subtoks += [line.split()[0] for line in open(tagexpr[1:],"r")]
 					else:
 						subtoks.append(tok)
 				db = db.select_tags(subtoks)

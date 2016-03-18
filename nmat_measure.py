@@ -29,7 +29,7 @@ from enlib import nmat, utils,array_ops, fft, errors
 # array by sqrt(n).
 
 # Our main noise model
-def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
+def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=10):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
 	srate is the sampling rate, dets is the list of detectors, shared specifies
@@ -45,7 +45,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 	amp_thresholds = extend_list([6**2,5**2], len(mbins))
 	single_threshold = 0.55
 	# Ok, compute our modes, and then measure them in each bin
-	vecs = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask)
+	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask, apodization=apodization)
 	bin_edges = np.array([
 			0.10, 0.25, 0.35, 0.45, 0.55, 0.70, 0.85, 1.00,
 			1.20, 1.40, 1.70, 2.00, 2.40, 2.80, 3.40, 4.00,
@@ -75,6 +75,11 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None):
 		# Save time by only using a subset of samples for estimating correlations
 		#d = sample_nmax(d,nmax)
 		amps = vecs.T.dot(d)
+		# Apply weights from apodization. This makes the separation between
+		# what's modelled as uncorrelated and what's modelled as correlated
+		# modes less abrupt. Since both white noise cleaning and E are measured
+		# from amps, this is the only place that needs to care about the apodization.
+		amps *= weights[:,None]**0.5
 		E.append(np.mean(np.abs(amps)**2,1))
 		# Project out modes for every frequency individually
 		dclean = d - vecs.dot(amps)
@@ -296,8 +301,11 @@ def project_out_from_matrix(A, V):
 	Q = A.dot(V)
 	return A - Q.dot(np.linalg.solve(np.conj(V.T).dot(Q), np.conj(Q.T)))
 
-def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None, skip_mean=False):
+def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None, skip_mean=False, apodization=10, apod_threshold=0.05):
 	if mask is None: mask = np.full(ft.shape[1], True, dtype=bool)
+	if apodization is None:
+		apodization = np.inf
+		apod_threshold = 1.0
 	ndet = ft.shape[0]
 	vecs = np.zeros([ndet,0])
 	if not skip_mean:
@@ -306,6 +314,7 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 		# Forcing this avoids the possibility that we don't find
 		# any modes at all.
 		vecs = np.hstack([vecs,np.full([ndet,1],ndet**-0.5)])
+	scores = np.full(vecs.shape[1],1.0)
 	for bi, b in enumerate(bins):
 		d    = ft[:,b[0]:b[1]]
 		# Ignore frequences in mask
@@ -320,17 +329,22 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 		# being nan. Should investigate.
 		e, v = np.linalg.eig(cov)
 		e, v = e.real, v.real
+		score = np.full(len(e),1.0)
 		if amp_thresholds != None:
 			# Compute median, exempting modes we don't have enough
 			# data to measure
 			median_e = np.median(np.sort(e)[::-1][:b[1]-b[0]+1])
-			good = e > amp_thresholds[bi]*median_e
-			e, v = e[good], v[:,good]
+			score *= np.minimum(1,np.maximum(0,e/(amp_thresholds[bi]*median_e)))**apodization
 		if single_threshold and e.size:
-			good = np.max(np.abs(v),0)<single_threshold
-			e, v = e[good], v[:,good]
+			# Reject modes too concentrated into a single mode. Judge based on
+			# 1-fraction_in_single to make apodization smoother
+			distributedness = 1-np.max(np.abs(v),0)
+			score *= np.minimum(1,distributedness/(1-single_threshold))**apodization
+		good = score >= apod_threshold
+		e, v, score = e[good], v[:,good], score[good]
 		vecs = np.hstack([vecs,v])
-	return vecs
+		scores = np.concatenate([scores,score])
+	return vecs, scores
 
 def extend_list(a, n): return a + [a[-1]]*(n-len(a))
 
