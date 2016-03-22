@@ -1,5 +1,5 @@
 import numpy as np, scipy as sp, enlib.bins, time, enlib.bins, h5py
-from enlib import nmat, utils,array_ops, fft, errors
+from enlib import nmat, utils,array_ops, fft, errors, config
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated
@@ -29,13 +29,15 @@ from enlib import nmat, utils,array_ops, fft, errors
 # array by sqrt(n).
 
 # Our main noise model
-def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=10):
+config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
+def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
 	srate is the sampling rate, dets is the list of detectors, shared specifies
 	whether the Detvecs object should use the compressed "shared" layout or not",
 	and cut_bins is a [nbin,{freq_from,freq_2}] array of frequencies
 	to completely cut."""
+	apodization = config.get("nmat_jon_apod", apodization) or None
 	nfreq    = ft.shape[1]
 	cut_bins = freq2ind(cut_bins, srate, nfreq)
 	mask     = bins2mask(cut_bins, nfreq)
@@ -44,7 +46,9 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=1
 	mbins = makebins([0.25, 4.0], srate, nfreq, 1000)[1:]
 	amp_thresholds = extend_list([6**2,5**2], len(mbins))
 	single_threshold = 0.55
-	# Ok, compute our modes, and then measure them in each bin
+	# Ok, compute our modes, and then measure them in each bin.
+	# When using apodization, the vecs are not necessarily orthogonal,
+	# so don't rely on that.
 	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask, apodization=apodization)
 	bin_edges = np.array([
 			0.10, 0.25, 0.35, 0.45, 0.55, 0.70, 0.85, 1.00,
@@ -74,7 +78,11 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=1
 		if np.any(dm): d = d[:,dm]
 		# Save time by only using a subset of samples for estimating correlations
 		#d = sample_nmax(d,nmax)
-		amps = vecs.T.dot(d)
+		#amps = vecs.T.dot(d)
+		# Measure amps when we have non-orthogonal vecs
+		rhs  = vecs.T.dot(d)
+		div  = vecs.T.dot(vecs)
+		amps = np.linalg.solve(div,rhs)
 		# Apply weights from apodization. This makes the separation between
 		# what's modelled as uncorrelated and what's modelled as correlated
 		# modes less abrupt. Since both white noise cleaning and E are measured
@@ -297,11 +305,22 @@ def bins2mask(bins, nfreq):
 	return mask
 
 def project_out_from_matrix(A, V):
+	# Used Woodbury to project out the given vectors from the
+	# covmat A
 	if V.size == 0: return A
 	Q = A.dot(V)
 	return A - Q.dot(np.linalg.solve(np.conj(V.T).dot(Q), np.conj(Q.T)))
 
-def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None, skip_mean=False, apodization=10, apod_threshold=0.05):
+def project_out_from_matrix_weighted(A, V, W):
+	# Like project_out_from_matrix, but scales modes
+	# by W**0.5 before subtracting them from A. This means that
+	# they are partially left in A, with eigenvalues of (1-W)E.
+	if V.size == 0: return A
+	AV  = A.dot(V)
+	AVW = A.dot(V*W[None]**0.5)
+	return A - AVW.dot(np.linalg.solve(np.conj(V.T).dot(AV), np.conj(AVW.T)))
+
+def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None, skip_mean=False, apodization=10, apod_threshold=0.02):
 	if mask is None: mask = np.full(ft.shape[1], True, dtype=bool)
 	if apodization is None:
 		apodization = np.inf
@@ -321,7 +340,8 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 		dm   = mask[b[0]:b[1]]
 		if np.any(dm): d = d[:,dm]
 		cov  = array_ops.measure_cov(d)
-		cov  = project_out_from_matrix(cov, vecs)
+		#cov  = project_out_from_matrix(cov, vecs)
+		cov  = project_out_from_matrix_weighted(cov, vecs, scores)
 		# Should use eigh here. Something strange is going on on my
 		# laptop here. Symptoms fit memory corruption. Writing out
 		# cov and reading it in in a separate program and using eigh

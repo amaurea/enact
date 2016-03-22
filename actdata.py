@@ -350,6 +350,7 @@ def calibrate_tod(data):
 	return data
 
 config.default("gapfill", "linear", "TOD gapfill method. Can be 'copy' or 'linear'")
+config.default("gapfill_context", 10, "Samples of context to use for matching up edges of cuts.")
 def calibrate_tod_real(data):
 	"""Apply gain to tod, fill gaps and deslope"""
 	require(data, ["tod","gain","cut"])
@@ -359,8 +360,9 @@ def calibrate_tod_real(data):
 	#np.savetxt("test_enki1/tod_raw.txt", data.tod[0])
 	data.tod = data.tod * data.gain[:,None]
 	#np.savetxt("test_enki1/tod_gain.txt", data.tod[0])
-	gapfiller = {"copy":gapfill.gapfill_copy, "linear":gapfill.gapfill_linear}[config.get("gapfill")]
-	gapfiller(data.tod, data.cut, inplace=True)
+	method, context = config.get("gapfill"), config.get("gapfill_context")
+	gapfiller = {"copy":gapfill.gapfill_copy, "linear":gapfill.gapfill_linear}[method]
+	gapfiller(data.tod, data.cut, inplace=True, overlap=context)
 	#np.savetxt("test_enki1/tod_gapfill.txt", data.tod[0])
 	utils.deslope(data.tod, w=8, inplace=True)
 	#np.savetxt("test_enki1/tod_deslope.txt", data.tod[0])
