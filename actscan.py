@@ -48,6 +48,7 @@ class ACTScan(scan.Scan):
 		self.hwp_phase[:,1] = np.sin(4*d.hwp)
 		self.dets  = d.dets
 		self.dgrid = (d.layout.nrow, d.layout.ncol)
+		self.layout = d.layout
 		self.sys = "hor"
 		self.site = d.site
 		if "noise" in d:
