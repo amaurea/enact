@@ -316,6 +316,11 @@ def read_beam(fname):
 	The file should have format [r,b(r)]. [r,b(r)]"""
 	return np.loadtxt(fname).T
 
+def read_dark_dets(fname):
+	"""Read a list of detectors from a file with one uid per line. Returns
+	a 1d numpy array of ints."""
+	return np.loadtxt(fname).astype(int).reshape(-1)
+
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""

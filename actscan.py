@@ -8,8 +8,9 @@ config.default("downsample_method", "fft", "Method to use when downsampling the 
 config.default("noise_model", "file", "Which noise model to use. Can be 'file' or 'jon'")
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
-	def __init__(self, entry, subdets=None, d=None, verbose=False):
+	def __init__(self, entry, subdets=None, d=None, verbose=False, dark=False):
 		self.fields = ["gain","polangle","tconst","hwp","cut","point_offsets","boresight","site","tod_shape","layout","beam","pointsrcs"]
+		if dark: self.fields += ["dark"]
 		if config.get("noise_model") == "file":
 			self.fields += ["noise"]
 		else:
@@ -19,7 +20,7 @@ class ACTScan(scan.Scan):
 				self.fields += ["spikes"]
 		if d is None:
 			d = actdata.read(entry, self.fields, verbose=verbose)
-			actdata.calibrate(d, verbose=verbose)
+			d = actdata.calibrate(d, verbose=verbose)
 			d.restrict(dets=d.dets[subdets])
 		if d.ndet == 0 or d.nsamp == 0: raise errors.DataMissing("No data in scan")
 		ndet = d.ndet
@@ -56,6 +57,10 @@ class ACTScan(scan.Scan):
 		else:
 			spikes = d.spikes[:2].T if "spikes" in d else None
 			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), spikes=spikes)
+		if "dark_tod" in d:
+			self.dark_tod = d.dark_tod
+		if "dark_cut" in d:
+			self.dark_cut = d.dark_cut
 		self.autocut = d.autocut if "autocut" in d else []
 		# Implementation details. d is our DataSet, which we keep around in
 		# because we need it to read tod consistently later. It will *not*

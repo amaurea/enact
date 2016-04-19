@@ -1,6 +1,6 @@
 import numpy as np, time
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops
 from enact import files, cuts, filters
 
 def try_read(method, desc, fnames, *args, **kwargs):
@@ -93,6 +93,26 @@ def read_boresight(entry, moby=False):
 		dataset.DataField("flags",     flags,samples=[0,flags.shape[0]],sample_index=0),
 		dataset.DataField("entry",     entry)])
 
+def read_dark(entry):
+	# Read dark detector data. We do this a bit differently than the rest because
+	# we don't want the total set of detectors to be the intersection between te
+	# dark detectors and the normal ones. We could make the dark set a separate
+	# DataSet, but that's inconvenient and error prone. So instead, we will make
+	# them part of the main data set, but handle the detector intersection stuff
+	# manually.
+	dark_dets = try_read(files.read_dark_dets, "dark_dets", entry.dark_dets)
+	#cut_dets, cuts, offset = try_read(files.read_cut, "dark_cut", entry.dark_cut)
+	#samples = [offset, offset + cuts.shape[-1]]
+	# Restrict to common indices
+	#dinds, cinds = utils.common_inds([dark_dets, cut_dets])
+	#dark_dets, cuts = dark_dets[dinds], cuts[cinds]
+	_, tod = try_read(files.read_tod, "dark_tod", entry.tod, ids=dark_dets)
+	samples = [0,tod.shape[-1]]
+	return dataset.DataSet([
+		dataset.DataField("dark_dets", dark_dets),
+		#dataset.DataField("dark_cut", cuts, samples=samples, sample_index=1),
+		dataset.DataField("dark_tod", tod, samples=samples, sample_index=1)])
+
 #def read_hwp(entry):
 #	hwp = try_read(files.read_hwp, "hwp", entry.tod)
 #	return dataset.DataSet([
@@ -178,6 +198,7 @@ readers = {
 		"tod_shape": read_tod_shape,
 		"tod": read_tod,
 		"hwp": read_hwp,
+		"dark": read_dark,
 	}
 
 default_fields = ["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs","tod_shape","tod"]
@@ -345,31 +366,17 @@ def calibrate_beam(data):
 
 def calibrate_tod(data):
 	"""Apply gain to tod and deconvolve instrument filters"""
-	calibrate_tod_real(data)
-	calibrate_tod_fourier(data)
+	data = calibrate_tod_real(data)
+	data = calibrate_tod_fourier(data)
 	return data
 
-config.default("gapfill", "linear", "TOD gapfill method. Can be 'copy', 'linear' or 'cubic'")
-config.default("gapfill_context", 10, "Samples of context to use for matching up edges of cuts.")
 def calibrate_tod_real(data):
 	"""Apply gain to tod, fill gaps and deslope"""
 	require(data, ["tod","gain","cut"])
 	if data.tod.size == 0: raise errors.DataMissing("No tod samples")
-	#print data.tod.shape, data.samples
-	#print data.dets[:4]
-	#np.savetxt("test_enki1/tod_raw.txt", data.tod[0])
 	data.tod = data.tod * data.gain[:,None]
-	#np.savetxt("test_enki1/tod_gain.txt", data.tod[0])
-	method, context = config.get("gapfill"), config.get("gapfill_context")
-	gapfiller = {
-			"copy":  gapfill.gapfill_copy,
-			"linear":gapfill.gapfill_linear,
-			"cubic": gapfill.gapfill_cubic,
-			}[method]
-	gapfiller(data.tod, data.cut, inplace=True, overlap=context)
-	#np.savetxt("test_enki1/tod_gapfill.txt", data.tod[0])
+	gapfill_helper(data.tod, data.cut)
 	utils.deslope(data.tod, w=8, inplace=True)
-	#np.savetxt("test_enki1/tod_deslope.txt", data.tod[0])
 	return data
 
 def calibrate_tod_fourier(data):
@@ -384,6 +391,38 @@ def calibrate_tod_fourier(data):
 	fft.irfft(ft, data.tod, normalize=True)
 	#np.savetxt("test_enki1/tod_detau.txt", data.tod[0])
 	del ft
+	return data
+
+def calibrate_dark(data):
+	"""Apply gain to tod and deconvolve instrument filters"""
+	data = calibrate_dark_real(data)
+	data = calibrate_dark_fourier(data)
+	return data
+
+def calibrate_dark_real(data):
+	"""Calibrate dark detectors. Mostly desloping."""
+	#require(data, ["dark_tod","dark_cut"])
+	require(data, ["dark_tod"])
+	if data.dark_tod.size == 0: return data
+	data.dark_tod = data.dark_tod * 1.0
+	dark_cut = todops.find_spikes(data.dark_tod)
+	gapfill_helper(data.dark_tod, dark_cut)
+	utils.deslope(data.dark_tod, w=8, inplace=True)
+	# Add the cuts to the dataset
+	data += dataset.DataField("dark_cut", dark_cut, sample_index=1,
+			samples=data.datafields["dark_tod"].samples)
+	return data
+
+def calibrate_dark_fourier(data):
+	"""Fourier deconvolution of dark detectors. Can't do this
+	completely, as we don't have time constants."""
+	require(data, ["dark_tod", "srate"])
+	if data.dark_tod.size == 0: return data
+	ft = fft.rfft(data.dark_tod)
+	freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
+	butter = filters.butterworth_filter(freqs)
+	ft /= butter[None]
+	fft.irfft(ft, data.dark_tod, normalize=True)
 	return data
 
 # These just turn cuts on or off, without changing their other properties
@@ -472,9 +511,12 @@ calibrators = {
 	"tod_real":     calibrate_tod_real,
 	"tod_fourier":  calibrate_tod_fourier,
 	"hwp":          calibrate_hwp,
+	"dark":         calibrate_dark,
+	"dark_real":    calibrate_dark_real,
+	"dark_foutier": calibrate_dark_fourier,
 }
 
-default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier"]
+default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier","dark"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
@@ -489,7 +531,7 @@ def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 		t1 = time.time()
 		status = 1
 		try:
-			calibrators[op](data)
+			data = calibrators[op](data)
 		except errors.DataMissing as e:
 			if strict: raise
 			status = 0
@@ -555,3 +597,14 @@ def find_boresight_jumps(bore, width=30, tol=0.03):
 		fb = signal.medfilt(b, width)
 		bad |= np.abs(b-fb) > tol
 	return bad
+
+config.default("gapfill", "linear", "TOD gapfill method. Can be 'copy', 'linear' or 'cubic'")
+config.default("gapfill_context", 10, "Samples of context to use for matching up edges of cuts.")
+def gapfill_helper(tod, cut):
+	method, context = config.get("gapfill"), config.get("gapfill_context")
+	gapfiller = {
+			"copy":  gapfill.gapfill_copy,
+			"linear":gapfill.gapfill_linear,
+			"cubic": gapfill.gapfill_cubic,
+			}[method]
+	gapfiller(tod, cut, inplace=True, overlap=context)
