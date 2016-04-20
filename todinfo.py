@@ -209,6 +209,6 @@ def calc_jon_day(ctime):
 
 def get_tods(selector, db):
 	try:
-		return utils.read_lines(selector)
+		return np.array(utils.read_lines(selector))
 	except IOError:
 		return db[selector].ids
