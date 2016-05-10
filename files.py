@@ -321,6 +321,11 @@ def read_dark_dets(fname):
 	a 1d numpy array of ints."""
 	return np.loadtxt(fname).astype(int).reshape(-1)
 
+def read_buddies(fname):
+	"""Read a beam decomposition of the near-sidelobe "buddies".
+	Each line should contain xi eta T Q U for one buddy."""
+	return np.loadtxt(fname)
+
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""

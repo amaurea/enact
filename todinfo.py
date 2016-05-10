@@ -26,6 +26,38 @@ Here are some examples in the context of actpol analysis
  7. deep6,night              all night-time deep6 data. Night is an automatic tag based on the hour field
  8. deep6,el>50,pwv<1        all deep6 files with el > 50 degrees and pwv < 1 mm
  9. deep6,pwv<2:pwv[0/2]     the lowest half of the files with pwv < 2 mm for deep6"""
+
+#### Ideas for new todinfo ####
+# Two kinds of inputs:
+#  1. Tag files. Mostly like the current stuff, but does not get
+#     data fields from them. Basically just a file with lines of
+#     format [fname tag tag tag ...]. Unlike the current version,
+#     the same id can be mentioned in multiple such files, and will
+#     get all those tags.
+#  2. Data fields. Things like ctime, duration, mean pointing [hor,cel,gal],
+#     pwv, pwv variance, wind speed, wind direction, patch bounds [hor,cel,gal], etc.
+#     These depend on both the tods and external data files. Could be distributed
+#     as a single hdf file with each of these properties as fields in it. As a text
+#     file it would be cumbersome - far too many columns to keep track of.
+#
+# The program generating #2 needs the locations of tods and other datafiles.
+# These can be handled using the filedb. That leaves us with the set of ids,
+# which we can get via the machinery for #1. So overall, we should keep #1
+# and #2 separate, and then build a query mechanism on top of both of them.
+#
+# Filedb should be updated to handle detector subsets. This is needed to
+# let us easily distinguish between the two frequencies in pa3, for example.
+# This can be done by
+#  1. Adding a file defining mappings from tags to detector indices to the filedb file
+#  2. Supporting id:taglist in filedb queries, resulting in taglist being written to
+#     entry.taglist
+#  3. Adding actdata.read_dets(entry), which reads entry.det_tags and entry.taglist
+#     and returns a DataField with only the relevant detectors included.
+#  4. Making todinfo return id:taglist when queried, instead of just ids.
+#     Tags it does not recognize itself are passed along in the taglist here.
+# With this in place, we will be able to do things like deep56,ar3,150Ghz, which would
+# only select the relevant part of the array.
+
 import shlex, numpy as np, hashlib
 from enlib import utils, bunch
 

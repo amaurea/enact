@@ -9,7 +9,7 @@ config.default("noise_model", "file", "Which noise model to use. Can be 'file' o
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False, dark=False):
-		self.fields = ["gain","polangle","tconst","hwp","cut","point_offsets","boresight","site","tod_shape","layout","beam","pointsrcs"]
+		self.fields = ["gain","polangle","tconst","hwp","cut","cut_noiseest","point_offsets","boresight","site","tod_shape","layout","beam","pointsrcs", "buddies"]
 		if dark: self.fields += ["dark"]
 		if config.get("noise_model") == "file":
 			self.fields += ["noise"]
@@ -31,15 +31,11 @@ class ACTScan(scan.Scan):
 		self.offsets   = np.zeros([ndet,self.boresight.shape[1]])
 		self.offsets[:,1:] = d.point_offset
 		self.cut       = d.cut.copy()
+		self.cut_noiseest = d.cut_noiseest.copy()
 		self.comps     = np.zeros([ndet,4])
 		self.beam      = d.beam
 		self.pointsrcs = d.pointsrcs
-		# negative U component because this is the top row of a positive
-		# rotation matrix [[c,-s],[s,c]].
-		self.comps[:,0] = 1
-		self.comps[:,1] = np.cos(+2*d.polangle)
-		self.comps[:,2] = np.sin(-2*d.polangle)
-		self.comps[:,3] = 0
+		self.comps     = d.det_comps
 		# Set up the hwp rotation matrix per sample
 		#print "moo hwp"
 		#d.hwp *= -1
@@ -56,11 +52,16 @@ class ACTScan(scan.Scan):
 			self.noise = d.noise
 		else:
 			spikes = d.spikes[:2].T if "spikes" in d else None
-			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), spikes=spikes)
+			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), spikes=spikes,
+					cut=self.cut_noiseest)
 		if "dark_tod" in d:
 			self.dark_tod = d.dark_tod
 		if "dark_cut" in d:
 			self.dark_cut = d.dark_cut
+		if "buddy_comps" in d:
+			# Expand buddy_comps to {dt,daz,ddec}
+			self.buddy_comps = d.buddy_comps
+			self.buddy_offs  = np.concatenate([d.buddy_offs[...,:1],d.buddy_offs],-1)
 		self.autocut = d.autocut if "autocut" in d else []
 		# Implementation details. d is our DataSet, which we keep around in
 		# because we need it to read tod consistently later. It will *not*

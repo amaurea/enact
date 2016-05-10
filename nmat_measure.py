@@ -1,5 +1,5 @@
 import numpy as np, scipy as sp, enlib.bins, time, enlib.bins, h5py
-from enlib import nmat, utils,array_ops, fft, errors, config
+from enlib import nmat, utils,array_ops, fft, errors, config, gapfill
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated
@@ -369,10 +369,16 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 def extend_list(a, n): return a + [a[-1]]*(n-len(a))
 
 class NmatBuildDelayed(nmat.NoiseMatrix):
-	def __init__(self, model="jon", spikes=None):
+	def __init__(self, model="jon", spikes=None, cut=None):
 		self.model  = model
 		self.spikes = spikes
+		self.cut    = cut
 	def update(self, tod, srate):
+		# If we have noise estimation cuts, we must gapfill these
+		# before measuring the noise, and restore them afterwards
+		if self.cut is not None:
+			vals = self.cut.extract(tod)
+			gapfill.gapfill(tod, self.cut, inplace=True)
 		try:
 			if self.model == "jon":
 				ft = fft.rfft(tod) * tod.shape[1]**-0.5
@@ -384,7 +390,10 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
 			print "Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape)
 			noise_model = nmat.NmatNull()
+		if self.cut is not None:
+			self.cut.insert(tod, vals)
 		return noise_model
 	def __getitem__(self, sel):
 		res, detslice, sampslice = self.getitem_helper(sel)
+		res.cut = res.cut[sel]
 		return res

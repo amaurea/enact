@@ -44,6 +44,13 @@ def read_cut(entry):
 		dataset.DataField("cut", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
 		dataset.DataField("entry", entry)])
 
+def read_cut_noiseest(entry):
+	dets, data, offset = try_read(files.read_cut, "cut_noiseest", entry.cut_noiseest)
+	samples = [offset, offset + data.shape[-1]]
+	return dataset.DataSet([
+		dataset.DataField("cut_noiseest", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
+		dataset.DataField("entry", entry)])
+
 def read_point_offsets(entry):
 	dets, template = try_read(files.read_point_template, "point_template", entry.point_template)
 	try: correction = try_read(files.read_point_offsets, "point_offsets", entry.point_offsets)[entry.id]
@@ -113,11 +120,9 @@ def read_dark(entry):
 		#dataset.DataField("dark_cut", cuts, samples=samples, sample_index=1),
 		dataset.DataField("dark_tod", tod, samples=samples, sample_index=1)])
 
-#def read_hwp(entry):
-#	hwp = try_read(files.read_hwp, "hwp", entry.tod)
-#	return dataset.DataSet([
-#		dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0),
-#		dataset.DataField("hwp_id", ])
+def read_buddies(entry):
+	buddies = try_read(files.read_buddies, "buddies", entry.buddies)
+	return dataset.DataSet([dataset.DataField("buddies", data=buddies)])
 
 config.default("hwp_fallback", "none", "How to handle missing HWP data. 'none' skips the tod (it it is supposed to have hwp data), while 'raw' falls back on the native hwp data.")
 def read_hwp(entry):
@@ -186,6 +191,7 @@ readers = {
 		"polangle": read_polangle,
 		"tconst": read_tconst,
 		"cut": read_cut,
+		"cut_noiseest": read_cut_noiseest,
 		"point_offsets": read_point_offsets,
 		"pointsrcs": read_pointsrcs,
 		"layout": read_layout,
@@ -199,9 +205,10 @@ readers = {
 		"tod": read_tod,
 		"hwp": read_hwp,
 		"dark": read_dark,
+		"buddies": read_buddies,
 	}
 
-default_fields = ["layout","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs","tod_shape","tod"]
+default_fields = ["layout","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
 def read(entry, fields=None, exclude=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
@@ -291,6 +298,7 @@ def calibrate_boresight(data):
 	require(data, ["boresight","flags"])
 	# Convert angles to radians
 	if data.nsamp in [0, None]: raise errors.DataMissing("nsamp")
+	if data.nsamp < 0: raise errors.DataMissing("nsamp")
 	data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
 	bad_flag = (data.flags!=0)*(data.flags!=0x10)
@@ -329,7 +337,8 @@ def crop_fftlen(data, factors=None):
 	"""Slightly crop samples in order to make ffts faster. This should
 	be called at a point when the length won't be futher cropped by other
 	effects."""
-	if data.nsamp is None: raise errors.DataMissing("nsamp")
+	if data.nsamp in [0, None]: raise errors.DataMissing("nsamp")
+	if data.nsamp < 0: raise errors.DataMissing("nsamp")
 	factors = config.get("fft_factors", factors)
 	if isinstance(factors, basestring): factors = [int(w) for w in factors.split(",")]
 	ncrop = fft.fft_len(data.nsamp, factors=factors)
@@ -342,10 +351,38 @@ def calibrate_point_offset(data):
 	data.point_offset[:] = offset_to_dazel(data.point_offset, np.mean(data.boresight[1:,::100],1))
 	return data
 
+def calibrate_buddies(data):
+	"""Convert buddies to buddy_offs and buddy_comps, which describes the
+	position and TQU linear combination each detector sees each buddy with.
+	This assumes that boresight, polangle and point_offsets already have been
+	calibrated."""
+	require(data, ["buddies", "boresight", "det_comps", "point_offset"])
+	mean_bore = np.mean(data.boresight[1:,::100],1)
+	# Recover point offsets in xy plane (this would be unnecessary if
+	# we handled the focalplane to horizontal conversion in the pointing matrix
+	raw_det_offs = dazel_to_offset(data.point_offset, mean_bore)
+	raw_buddy_offs = raw_det_offs[None] + data.buddies[:,None,:2]
+	buddy_offs  = offset_to_dazel(raw_buddy_offs, mean_bore)
+	# The buddies are modeled as only responding to T
+	buddy_comps = np.zeros((len(buddy_offs),data.ndet,3))
+	data.buddies[:,4] *= -1
+	buddy_comps[:,:,0] = np.einsum("dc,bc->bd", data.det_comps, data.buddies[:,2:5])
+	data += dataset.DataSet([
+		dataset.DataField("buddy_offs",  buddy_offs,  dets=data.dets, det_index=1),
+		dataset.DataField("buddy_comps", buddy_comps, dets=data.dets, det_index=1)])
+	return data
+
 def calibrate_polangle(data):
 	"""Rotate polarization angles to match the Healpix convention"""
 	require(data, ["polangle"])
 	data.polangle += np.pi/2
+	# negative U component because this is the top row of a positive
+	# rotation matrix [[c,-s],[s,c]].
+	det_comps = np.ascontiguousarray(np.array([
+		data.polangle*0+1,
+		np.cos(+2*data.polangle),
+		np.sin(-2*data.polangle)]).T)
+	data += dataset.DataField("det_comps", det_comps, dets=data.dets, det_index=0)
 	return data
 
 config.default("pad_cuts", 0, "Number of samples by which to widen each cut range by")
@@ -353,6 +390,12 @@ def calibrate_cut(data, n=None):
 	require(data, ["cut"])
 	n = config.get("pad_cuts", n)
 	data.cut = data.cut.widen(n)
+	return data
+
+def calibrate_cut_noiseest(data, n=None):
+	require(data, ["cut_noiseest"])
+	n = config.get("pad_cuts", n)
+	data.cut_noiseest = data.cut_noiseest.widen(n)
 	return data
 
 def calibrate_beam(data):
@@ -505,6 +548,7 @@ calibrators = {
 	"beam":         calibrate_beam,
 	"polangle":     calibrate_polangle,
 	"cut":          calibrate_cut,
+	"cut_noiseest": calibrate_cut_noiseest,
 	"autocut":      autocut,
 	"fftlen":       crop_fftlen,
 	"tod":          calibrate_tod,
@@ -514,9 +558,10 @@ calibrators = {
 	"dark":         calibrate_dark,
 	"dark_real":    calibrate_dark_real,
 	"dark_foutier": calibrate_dark_fourier,
+	"buddies":      calibrate_buddies,
 }
 
-default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier","dark"]
+default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "cut_noiseest", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
