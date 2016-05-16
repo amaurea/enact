@@ -285,7 +285,7 @@ def read_hwp_cleaned(fname):
 def read_spikes(fname):
 	"""Given a filename, reads the start, end and amplitude of the spikes described
 	in the file. Spikes without start/end are ignored."""
-	a = np.loadtxt(fname).T
+	a = np.loadtxt(fname, ndmin=2).T
 	good = a[5] != 0
 	return a[:,good][[4,5,2]]
 
@@ -314,7 +314,7 @@ def read_pickup_cut(fname):
 def read_beam(fname):
 	"""Given a filename, read an equi-spaced radial beam profile.
 	The file should have format [r,b(r)]. [r,b(r)]"""
-	return np.loadtxt(fname).T
+	return np.loadtxt(fname, ndmin=2).T
 
 def read_dark_dets(fname):
 	"""Read a list of detectors from a file with one uid per line. Returns
@@ -324,7 +324,12 @@ def read_dark_dets(fname):
 def read_buddies(fname):
 	"""Read a beam decomposition of the near-sidelobe "buddies".
 	Each line should contain xi eta T Q U for one buddy."""
-	return np.loadtxt(fname)
+	return np.loadtxt(fname).reshape(-1,2)
+
+def read_apex(fname):
+	"""Read weather data from apex from a gzip-compressed text file with
+	columns [ctime] [value]."""
+	return np.loadtxt(fname).reshape(-1,2)
 
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],

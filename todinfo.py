@@ -1,243 +1,162 @@
-"""This module builds lists of TOD ids based on a set of tagged files and
-a set of selectors. These are specified in the form of a dict
-{file: set(tags), file:set(tags), ...}. Each file is assumed to have the
-format [id] [hour] [el] [az] [pwv] [status].
+import numpy as np
+from enlib import coordinates, utils, errors, bunch, tagdb
+from enact import actdata
+day_range = [11,23]
+jon_ref   = 1378840304
 
-Based on the file specification, a simple databsase is built by expanding and
-combining each file into a list of fields and tags.
-
-The database is queried using strings of the type "tag,tag,tag,...:sort[slice]",
-where tag can be
- 1. an actual tag. This requires the ids selected to be in a file with that tag
- 2. tag+tag+...: This requires the ids to be in files that contain at least one of those tags
- 3. an expression involving the fields in the file, like pwv<1 or hour>11.
-sort specifies a field to sort the list by.
-slice is either a normal python slice, where the constant n specifies the length of the array,
-or the form a/b, indicating the a'th block out of b equally sized blocks, counting from zero.
-This is just syntactic sugar for [a*n/b:(a+1)*n/b], since this is such a common case.
-
-Here are some examples in the context of actpol analysis
- 1. deep6                    all files for the target deep6
- 2. deep6,s13                all season 2013 files for deep6
- 3. deep6,s14,ar2            all season 2014 files for deep6 with array 2
- 4. deep6:t[0::4]            every fourth file of deep6 after sorting by time
- 5. deep6,s14:t[1*n/4:2*n/4] the second quarter of the 2014 deep6 data by time
- 6. deep6,s14:t[1/4]         shorter way of writing the above
- 7. deep6,night              all night-time deep6 data. Night is an automatic tag based on the hour field
- 8. deep6,el>50,pwv<1        all deep6 files with el > 50 degrees and pwv < 1 mm
- 9. deep6,pwv<2:pwv[0/2]     the lowest half of the files with pwv < 2 mm for deep6"""
-
-#### Ideas for new todinfo ####
-# Two kinds of inputs:
-#  1. Tag files. Mostly like the current stuff, but does not get
-#     data fields from them. Basically just a file with lines of
-#     format [fname tag tag tag ...]. Unlike the current version,
-#     the same id can be mentioned in multiple such files, and will
-#     get all those tags.
-#  2. Data fields. Things like ctime, duration, mean pointing [hor,cel,gal],
-#     pwv, pwv variance, wind speed, wind direction, patch bounds [hor,cel,gal], etc.
-#     These depend on both the tods and external data files. Could be distributed
-#     as a single hdf file with each of these properties as fields in it. As a text
-#     file it would be cumbersome - far too many columns to keep track of.
-#
-# The program generating #2 needs the locations of tods and other datafiles.
-# These can be handled using the filedb. That leaves us with the set of ids,
-# which we can get via the machinery for #1. So overall, we should keep #1
-# and #2 separate, and then build a query mechanism on top of both of them.
-#
-# Filedb should be updated to handle detector subsets. This is needed to
-# let us easily distinguish between the two frequencies in pa3, for example.
-# This can be done by
-#  1. Adding a file defining mappings from tags to detector indices to the filedb file
-#  2. Supporting id:taglist in filedb queries, resulting in taglist being written to
-#     entry.taglist
-#  3. Adding actdata.read_dets(entry), which reads entry.det_tags and entry.taglist
-#     and returns a DataField with only the relevant detectors included.
-#  4. Making todinfo return id:taglist when queried, instead of just ids.
-#     Tags it does not recognize itself are passed along in the taglist here.
-# With this in place, we will be able to do things like deep56,ar3,150Ghz, which would
-# only select the relevant part of the array.
-
-import shlex, numpy as np, hashlib
-from enlib import utils, bunch
-
-def id2hash(id):
-	toks = id.split(".")
-	return hashlib.md5(toks[0]).hexdigest() + "." + toks[-1]
-
-class TODinfo:
-	def __repr__(self):
-		return "TODinfo(fields="+ str(self.fields) + ", tags=" + str(self.tags) + ")"
-
-class TODDB:
-	def __init__(self, filespec, restrict_status=True):
-		"""TOD databse which allows you to easily get ids of tods fulfilling
-		various criteria. Construct either by passing the file name to a todinfo
-		file with lines of the format [filename] [tag] [tag] ... as parsed by
-		parse_todinfofile, or by directly specifying a filespec dictionary
-		{filename: tagset}. restrict_status indicates whether tods with status
-		less than 2 should be excluded as invalid.
-
-		Example usage:
-			db = TODDB("todinfo.txt")
-			ids = db["deep56,ar2,night:t[0/2]"].ids
-			for id in ids:
-				do something with id"""
-		if isinstance(filespec, TODDB):
-			self.fields = filespec.fields.copy()
-			self.tags = filespec.tags.copy()
-		else:
-			if isinstance(filespec, basestring):
-				filespec = parse_todinfofile(filespec)
-			fieldnames = ["id","hour","el","az","pwv","status"]
-			fieldtypes = [str,float,float,float,float,int]
-			self.fields = bunch.Bunch({n:[] for n in fieldnames})
-			self.tags = []
-			for fname, ftags in filespec.items():
-				ftags = set(ftags)
-				with open(fname, "r") as f:
-					for line in f:
-						if not line or len(line) < 1 or line[0] == "#": continue
-						toks = line.split()
-						if restrict_status and int(toks[5]) < 2: continue
-						for n,typ,v in zip(fieldnames,fieldtypes,toks):
-							self.fields[n].append(typ(v))
-						# Automatically computed tags
-						dn = "night" if (self.fields["hour"][-1] < 11 or self.fields["hour"][-1] > 23) else "day"
-						self.tags.append(ftags | set([dn,self.fields["id"][-1]]))
-			for k in self.fields.keys():
-				self.fields[k] = np.array(self.fields[k])
-			# Extra fields
-			self.fields["t"] = np.array([float(v[:v.index(".")]) for v in self.fields["id"]])
-			self.fields["hash"] = np.array([id2hash(v) for v in self.fields["id"]])
-			self.fields["mjd"] = utils.ctime2mjd(self.fields["t"])
-			self.fields["jon"] = calc_jon_day(self.fields["t"])
-			self.tags = np.array(self.tags)
-			# Sort by t by default
-			inds = np.argsort(self.fields["t"])
-			self.tags = self.tags[inds]
-			for k in self.fields.keys():
-				self.fields[k] = self.fields[k][inds]
-	@property
-	def n(self): return len(self.tags)
-	@property
-	def ids(self): return self.fields["id"]
-	def copy(self): return TODDB(self)
-	def select_inds(self, inds):
-		res = self.copy()
-		for k in res.fields.keys():
-			res.fields[k] = res.fields[k][inds]
-		res.tags = res.tags[inds]
+# Implement our todinfo database using a Tagdb
+class Todinfo(tagdb.Tagdb):
+	def __init__(self, data, sort="id"):
+		tagdb.Tagdb.__init__(self, data, sort=sort)
+	@staticmethod
+	def read(fname, type=None):
+		data = tagdb.Tagdb.read(fname, type=type, matchfun=is_selected_tod_loic).data
+		return Todinfo(data)
+	def get_funcs(self):
+		res = tagdb.Tagdb.get_funcs(self)
+		# Define wrapper here for the default argument
+		def hits(point, polys=self.data["bounds"]):
+			return point_in_polygon_safe(point, polys)
+		def dist(point, ref=[self.data["ra"],self.data["dec"]]):
+			return utils.angdist(np.array(point)*utils.degree,np.array(ref)*utils.degree, zenith=False)/utils.degree
+		def grow(polys, dist):
+			return grow_polygon(polys*utils.degree, dist*utils.degree)/utils.degree
+		res["hits"] = hits
+		res["dist"] = dist
+		res["grow"] = grow
 		return res
-	def select_tags(self, tags):
-		try: tags = set(tags)
-		except TypeError: tags = set([tags])
-		return self.select_inds([i for i,otags in enumerate(self.tags) if tags & otags])
-	def query(self, q): return query_db(self, q)
-	def __getitem__(self, q):
-		if isinstance(q, (int,long)):
-			res = TODinfo()
-			res.fields = bunch.Bunch()
-			for f in self.fields:
-				res.fields[f] = self.fields[f][q]
-			res.tags = self.tags[q]
-			return res
-		else:
-			return self.query(q)
-	def __str__(self): return self.__repr__(100)
+	# Print the most useful fields + the true tags for each tod
 	def __repr__(self, nmax=None):
 		lines = []
-		n1, n2 = (self.n, 0) if not nmax or self.n <= nmax else (nmax/4, nmax/4)
+		n = len(self)
+		n1, n2 = (n, 0) if not nmax or n <= nmax else (nmax/4, nmax/4)
 		def pline(i):
-			line = "%s %5.2f %5.2f %5.2f %5.2f %d" % tuple([self.fields[k][i] for k in ["id","hour","el","az","pwv","status"]])
-			return line + " " + " ".join(sorted(list(self.tags[i])))
+			line = "%s %5.2f %7.2f %6.2f %6.2f %6.2f %5.2f" % tuple([
+				self.data[k][i] for k in ["id","hour","az","el","ra","dec","pwv"]])
+			line += " %6.2f %6.2f" % tuple(self.data["wind"][:,i])
+			line += " " + " ".join(sorted([key for key,val in self.data.iteritems() if key != "id" and val.dtype == bool and val.ndim == 1 and val[i]]))
+			return line
 		for i in range(0,n1):
 			lines.append(pline(i))
 		if n2 > 0:
 			lines.append("       ...       ")
-			for i in range(self.n-n2, self.n):
+			for i in range(n-n2, n):
 				lines.append(pline(i))
 		return "\n".join(lines)
-	def __iter__(self):
-		for i in xrange(self.n):
-			yield self[i]
+	def __str__(self): return self.__repr__(100)
 
-def parse_todinfofile(fname):
-	res  = {}
-	vars = {}
-	with open(fname,"r") as f:
-		for line in f:
-			line = line.rstrip()
-			if not line or len(line) < 1 or line[0] == "#": continue
-			toks = shlex.split(line)
-			assert len(toks) > 1, "Tod info entry needs at least one tag: '%s'" % line
-			if toks[1] == "=":
-				vars[toks[0]] = toks[2]
-			else:
-				res[toks[0].format(**vars)] = set(toks[1:])
+def is_selected_tod_loic(line):
+	toks = line.split()
+	if len(toks) != 6 or int(toks[5]) == 2:
+		return toks[0]
+	else: return None
+
+def read(fname, type=None):
+	return Todinfo.read(fname, type)
+
+# Functions that can be used in todinfo queries
+def point_in_polygon_safe(points, polygons):
+	points   = np.asarray(points)
+	polygons = np.array(polygons)
+	polygons[0] = utils.rewind(polygons[0], points[0], 360)
+	return utils.point_in_polygon(points.T, polygons.T)
+def grow_polygon(polys, dist):
+	polys = np.array(polys)
+	dist  = np.zeros(2) + dist
+	# Compensate for curvature
+	dist_eff = polys.copy()
+	dist_eff[0] = dist[0] / np.cos(polys[1])
+	dist_eff[1] = dist[1]
+	# Expand away from center independently in each dimension
+	mid = np.mean(polys,1)
+	for i in range(2):
+		polys[i,polys[i]<mid[i]] -= dist[i]
+		polys[i,polys[i]>mid[i]] += dist[i]
+	return polys
+
+# Functions for extracting tod stats from tod files. Useful for building
+# up Todinfos.
+def build_tod_stats(entry, Naz=5, Nt=2):
+	"""Collect summary information for the tod in the given entry, returning
+	it as a bunch. If some information can't be found, then those fields will
+	be set to a placeholder value (usually NaN), but the fields will still all
+	be present."""
+	# At the very least we need the pointing, so no try catch around this
+	d = actdata.read(entry, ["boresight","site"])
+	d += actdata.read_point_offsets(entry, no_correction=True)
+	d = actdata.calibrate(d, exclude=["autocut"])
+
+	# Get the array center and radius
+	acenter = np.mean(d.point_offset,0) 
+	arad    = np.mean((d.point_offset-acenter)**2,0)**0.5
+
+	t, baz, bel = np.mean(d.boresight,1)
+	az  = baz + acenter[0]
+	el  = bel + acenter[1]
+	dur, waz, wel = np.max(d.boresight,1)-np.min(d.boresight,1)
+	mjd  = utils.ctime2mjd(t)
+	hour = t/3600.%24
+	day   = hour >= day_range[0] and hour < day_range[1]
+	night = not day
+	jon   = (t - jon_ref)/(3600*24)
+
+	ra, dec = coordinates.transform("hor","cel",[az,el],mjd, site=d.site)
+	# Get the array center bounds on the sky, assuming constant elevation
+	ts  = utils.ctime2mjd(t+dur/2*np.linspace(-1,1,Nt))
+	azs = az + waz/2*np.linspace(-1,1,Naz)
+	E1 = coordinates.transform("hor","cel",[azs,         [el]*Naz],time=[ts[0]]*Naz, site=d.site)[:,1:]
+	E2 = coordinates.transform("hor","cel",[[azs[-1]]*Nt,[el]*Nt], time=ts,          site=d.site)[:,1:]
+	E3 = coordinates.transform("hor","cel",[azs[::-1],   [el]*Naz],time=[ts[-1]]*Naz,site=d.site)[:,1:]
+	E4 = coordinates.transform("hor","cel",[[azs[0]]*Nt, [el]*Nt], time=ts[::-1],    site=d.site)[:,1:]
+	bounds = np.concatenate([E1,E2,E3,E4],1)
+	bounds[0] = utils.rewind(bounds[0])
+	# Grow bounds by array radius
+	bmid = np.mean(bounds,1)
+	for i in range(2):
+		bounds[i,bounds[i]<bmid[i]] -= arad[i]
+		bounds[i,bounds[i]>bmid[i]] += arad[i]
+
+	res = bunch.Bunch(id=entry.id, nsamp=d.nsamp, t=t, mjd=mjd, jon=jon,
+			hour=hour, day=day, night=night,
+			az =az /utils.degree,  el =el/utils.degree,
+			baz=baz/utils.degree,  bel=bel/utils.degree,
+			waz=waz/utils.degree,  wel=wel/utils.degree,
+			ra =ra /utils.degree,  dec=dec/utils.degree,
+			bounds = bounds/utils.degree)
+
+	# Planets
+	for obj in ["Sun","Moon","Mercury","Venus","Mars","Jupiter","Saturn","Uranus","Neptune"]:
+		res[obj] = coordinates.ephem_pos(obj, utils.ctime2mjd(t))/utils.degree
+
+	# Get our weather information, if available
+	try:
+		d += actdata.read(entry, ["apex"])
+		d  = actdata.calibrate_apex(d)
+		res["pwv"] = d.apex.pwv
+		res["wind"] = d.apex.wind
+		res["wind_speed"] = d.apex.wind_speed
+		res["T"] = d.apex.temperature
+	except errors.DataMissing:
+		res["pwv"] = np.NaN
+		res["wind"] = np.NaN
+		res["wind_speed"] = np.NaN
+		res["T"] = np.NaN
+	
+	# Try to get our cut info, so that we can select on
+	# number of detectors and cut fraction
+	try:
+		npre = d.nsamp*d.ndet
+		d += actdata.read(entry, ["cut"])
+		res["ndet"] = d.ndet
+		res["cut"] = 1-d.nsamp*d.ndet/float(npre)
+	except errors.DataMissing:
+		res["ndet"] = 0
+		res["cut"] = 1.0
+
 	return res
 
-def query_db(db, query):
-	if query is None: return db # Null query returns unmodified db
-	toks = query.split(":")
-	if len(toks) == 0: return db # Empty selection returns unmofified db
-	taglist, rest = toks[0], ":".join(toks[1:])
-	if taglist:
-		for tagexpr in taglist.split(","):
-			if len(tagexpr) == 0: continue
-			try:
-				# Copy to avoid having __builtins__ being inserted into fields
-				locs = np.__dict__.copy()
-				locs["int"] = np.int0
-				locs["float"] = np.float_
-				globs = db.fields._dict.copy()
-				db = db.select_inds(np.where(eval(tagexpr, globs, locs))[0])
-			except (SyntaxError, NameError, AttributeError):
-				subtoks = []
-				for tok in tagexpr.split("+"):
-					if tok[0] == "@":
-						for line in open(tagexpr[1:],"r"):
-							toks = line.split()
-							if len(toks) == 0 or toks[0][0] == "#": continue
-							subtoks.append(toks[0])
-						#subtoks += [line.split()[0] for line in open(tagexpr[1:],"r")]
-					else:
-						subtoks.append(tok)
-				db = db.select_tags(subtoks)
-	if rest:
-		try:
-			i = rest.index("[")
-			sort_key, s = rest[:i], rest[i+1:-1]
-		except ValueError:
-			sort_key, s = rest, ""
-		n = db.n
-		inds = np.arange(n)
-		if sort_key: inds = np.argsort(db.fields[sort_key])
-		if s:
-			# Check for simplified block slice syntax
-			try:
-				i = s.index("/")
-				a, b = int(s[:i]),int(s[i+1:])
-				inds = inds[a*n/b:(a+1)*n/b]
-			except ValueError:
-				# Fall back on full format
-				inds = eval("inds["+s+"]")
-		db = db.select_inds(inds)
-	return db
-
-def calc_jon_day(ctime):
-	"""Computes the days since beginning using Jon's
-	method. This places the day boundary at the time-of-day
-	with the lowest number of scans."""
-	secs = np.sort(ctime%86400)
-	if len(ctime) < 0: return np.zeros(len(ctime))
-	gaps = secs[1:]-secs[:-1]
-	i = np.argmax(gaps)
-	if secs[0]+86400-secs[-1] > gaps[i]:
-		cut = 0
-	else:
-		cut = 0.5*(secs[i]+secs[i+1])
-	return (ctime-cut)/86400
+def merge_tod_stats(statlist):
+	return bunch.Bunch(**{key: np.array([stat[key] for stat in statlist]) for key in statlist[0]})
 
 def get_tods(selector, db):
 	try:

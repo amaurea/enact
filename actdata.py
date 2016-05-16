@@ -1,6 +1,6 @@
 import numpy as np, time
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch
 from enact import files, cuts, filters
 
 def try_read(method, desc, fnames, *args, **kwargs):
@@ -51,10 +51,13 @@ def read_cut_noiseest(entry):
 		dataset.DataField("cut_noiseest", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
 		dataset.DataField("entry", entry)])
 
-def read_point_offsets(entry):
+def read_point_offsets(entry, no_correction=False):
 	dets, template = try_read(files.read_point_template, "point_template", entry.point_template)
-	try: correction = try_read(files.read_point_offsets, "point_offsets", entry.point_offsets)[entry.id]
-	except KeyError: raise errors.DataMissing("point_offsets id: " + entry.id)
+	if not no_correction:
+		try: correction = try_read(files.read_point_offsets, "point_offsets", entry.point_offsets)[entry.id]
+		except KeyError: raise errors.DataMissing("point_offsets id: " + entry.id)
+	else:
+		correction = 0
 	return dataset.DataSet([
 		dataset.DataField("point_offset",  template+correction, dets=dets, det_index=0),
 		dataset.DataField("point_template",template, dets=dets, det_index=0),
@@ -172,6 +175,17 @@ def read_pointsrcs(entry):
 		dataset.DataField("pointsrcs", data),
 		dataset.DataField("entry", entry)])
 
+def read_apex(entry):
+	# Get the raw weather info for the day this entry corresponds to.
+	# These may be empty if the data is missing
+	pwv        = try_read(files.read_apex, "pwv",  entry.pwv)
+	wind_speed = try_read(files.read_apex, "wind_speed", entry.wind_speed)
+	wind_dir   = try_read(files.read_apex, "wind_dir",   entry.wind_dir)
+	temperature= try_read(files.read_apex, "temperature",entry.temperature)
+	return dataset.DataSet([
+		dataset.DataField("apex",bunch.Bunch(pwv=pwv, wind_speed=wind_speed,
+		wind_dir=wind_dir, temperature=temperature))])
+
 def read_tod_shape(entry, moby=False):
 	if moby: dets, nsamp = try_read(files.read_tod_moby, "tod_shape", entry.tod, shape_only=True)
 	else:    dets, nsamp = try_read(files.read_tod,      "tod_shape", entry.tod, shape_only=True)
@@ -206,6 +220,7 @@ readers = {
 		"hwp": read_hwp,
 		"dark": read_dark,
 		"buddies": read_buddies,
+		"apex": read_apex,
 	}
 
 default_fields = ["layout","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
@@ -468,6 +483,33 @@ def calibrate_dark_fourier(data):
 	fft.irfft(ft, data.dark_tod, normalize=True)
 	return data
 
+def calibrate_apex(data):
+	"""Extract the mean of the part of the weather data relevant for
+	this tod. Boresight must have been already calibrated"""
+	require(data, ["apex","boresight"])
+	# First replace wind direction with the wind vector. Coordinate system is
+	# x-east, y-north, and indicates the direction the wind is blowing
+	# *towards*, hence the minus signs.
+	ispeed, idir = utils.common_inds([data.apex.wind_speed[:,0], data.apex.wind_dir[:,0]])
+	wind = np.zeros([len(ispeed),3])
+	wind[:,0] =  data.apex.wind_speed[ispeed,0]
+	wind[:,1] = -data.apex.wind_speed[ispeed,1] * np.sin(data.apex.wind_dir[idir,1]*utils.degree)
+	wind[:,2] = -data.apex.wind_speed[ispeed,1] * np.cos(data.apex.wind_dir[idir,1]*utils.degree)
+	# Then extract the mean values
+	period = data.boresight[0,[0,-1]]
+	def extract(arr, period, mask):
+		mask = mask & (arr[:,0]>=period[0])&(arr[:,0]<=period[1])
+		return arr[mask,1:]
+	def between(a, vmin, vmax): return (a[:,1]>=vmin)&(a[:,1]<vmax)
+	data.apex.pwv  = np.mean(extract(data.apex.pwv, period, between(data.apex.pwv, 0, 50)))
+	data.apex.temperature = np.mean(extract(data.apex.temperature, period, between(data.apex.temperature, -70,50)))
+	wind_mask = between(data.apex.wind_speed, 0, 50)
+	data.apex.wind = np.mean(extract(wind, period, wind_mask[ispeed]),0)
+	data.apex.wind_speed = np.mean(extract(data.apex.wind_speed, period, wind_mask))
+	# Discard wind_dir, as it does not average well. Use wind instead.
+	del data.apex.wind_dir
+	return data
+
 # These just turn cuts on or off, without changing their other properties
 config.default("cut_turnaround", False, "Whether to apply the turnaround cut.")
 config.default("cut_ground",     False, "Whether to apply the turnaround cut.")
@@ -558,10 +600,11 @@ calibrators = {
 	"dark":         calibrate_dark,
 	"dark_real":    calibrate_dark_real,
 	"dark_foutier": calibrate_dark_fourier,
+	"apex":         calibrate_apex,
 	"buddies":      calibrate_buddies,
 }
 
-default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "cut_noiseest", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies"]
+default_calib = ["boresight", "polangle", "hwp", "point_offset", "beam", "cut", "cut_noiseest", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
@@ -634,13 +677,15 @@ def dazel_to_offset(dazel, azel):
 	y, x = x, y
 	return np.array([x,y]).T
 
-def find_boresight_jumps(bore, width=30, tol=0.03):
+def find_boresight_jumps(bore, width=20, tol=[1.00,0.03,0.03]):
 	# median filter array to get reference behavior
 	bad = np.zeros(bore.shape[-1],dtype=bool)
 	width = int(width)/2*2+1
-	for b in bore:
-		fb = signal.medfilt(b, width)
-		bad |= np.abs(b-fb) > tol
+	for i, b in enumerate(bore):
+		# Median filter is too slow. Let's look at blocks instead
+		#fb = signal.medfilt(b, width)
+		fb = utils.block_mean_filter(b, width)
+		bad |= np.abs(b-fb) > tol[i]
 	return bad
 
 config.default("gapfill", "linear", "TOD gapfill method. Can be 'copy', 'linear' or 'cubic'")

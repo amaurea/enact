@@ -1,10 +1,9 @@
-import numpy as np, re, shlex, datetime, pipes, os
+import numpy as np, re, shlex, pipes, os
 from enlib import filedb, config, bunch
-from enact.todinfo import TODDB
+from enlib.utils import ctime2date
+from enact import todinfo
 
 def id2ts(id): return int(id[:id.index(".")])
-def ts2date(timestamp, tzone, fmt="%Y-%m-%d"):
-	return datetime.datetime.utcfromtimestamp(timestamp+tzone*3600).strftime(fmt)
 season_ends = [1390000000, 1421000000, 1454000000]
 
 extractors = {
@@ -14,10 +13,14 @@ extractors = {
 	"syear":  lambda id: 2013+np.searchsorted(season_ends, id2ts(id)),
 	"t5":     lambda id: id[:5],
 	"t":      lambda id: id[:id.index(".")],
-	"date":   lambda id: ts2date(id2ts(id), -9),
-	"year":   lambda id: ts2date(id2ts(id), -9, "%Y"),
-	"month":  lambda id: ts2date(id2ts(id), -9, "%m"),
-	"day":    lambda id: ts2date(id2ts(id), -9, "%d"),
+	"date":   lambda id: ctime2date(id2ts(id), -9),
+	"year":   lambda id: ctime2date(id2ts(id), -9, "%Y"),
+	"month":  lambda id: ctime2date(id2ts(id), -9, "%m"),
+	"day":    lambda id: ctime2date(id2ts(id), -9, "%d"),
+	"Udate":  lambda id: ctime2date(id2ts(id),  0),
+	"Uyear":  lambda id: ctime2date(id2ts(id),  0, "%Y"),
+	"Umonth": lambda id: ctime2date(id2ts(id),  0, "%m"),
+	"Uday":   lambda id: ctime2date(id2ts(id),  0, "%d"),
 }
 
 # Try to set up default databases. This is optional, and the databases
@@ -25,7 +28,7 @@ extractors = {
 config.default("root", ".", "Path to directory where the different metadata sets are")
 config.default("dataset", ".", "Path to data set directory relative to data_root")
 config.default("filedb", "filedb.txt", "File describing the location of the TOD and their metadata. Relative to dataset path.")
-config.default("todinfo", "todinfo.txt","File describing location of the TOD id lists. Relative to dataset path.")
+config.default("todinfo", "todinfo.hdf","File describing location of the TOD id lists. Relative to dataset path.")
 config.default("file_override", "none", "Comma-separated list of field:file, or none to disable")
 config.init()
 
@@ -39,5 +42,5 @@ def cjoin(names): return os.path.join(*[config.get(n) for n in names])
 
 def init():
 	global scans, data
-	scans = TODDB(cjoin(["root","dataset","todinfo"]))
+	scans = todinfo.read(cjoin(["root","dataset","todinfo"]))
 	data  = ACTFiles()
