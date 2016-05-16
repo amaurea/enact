@@ -31,9 +31,8 @@ class Todinfo(tagdb.Tagdb):
 		n = len(self)
 		n1, n2 = (n, 0) if not nmax or n <= nmax else (nmax/4, nmax/4)
 		def pline(i):
-			line = "%s %5.2f %7.2f %6.2f %6.2f %6.2f %5.2f" % tuple([
-				self.data[k][i] for k in ["id","hour","az","el","ra","dec","pwv"]])
-			line += " %6.2f %6.2f" % tuple(self.data["wind"][:,i])
+			line = "%s %5.2f %7.2f %6.2f %6.2f %6.2f %5.2f %6.2f %6.2f" % tuple([
+				self.data[k][i] for k in ["id","hour","az","el","ra","dec","pwv","wx","wy"]])
 			line += " " + " ".join(sorted([key for key,val in self.data.iteritems() if key != "id" and val.dtype == bool and val.ndim == 1 and val[i]]))
 			return line
 		for i in range(0,n1):
