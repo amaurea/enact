@@ -133,12 +133,14 @@ def build_tod_stats(entry, Naz=5, Nt=2):
 		d += actdata.read(entry, ["apex"])
 		d  = actdata.calibrate_apex(d)
 		res["pwv"] = d.apex.pwv
-		res["wind"] = d.apex.wind
+		res["wx"] = d.apex.wind[0]
+		res["wy"] = d.apex.wind[1]
 		res["wind_speed"] = d.apex.wind_speed
 		res["T"] = d.apex.temperature
 	except errors.DataMissing:
 		res["pwv"] = np.NaN
-		res["wind"] = np.NaN
+		res["wx"] = np.NaN
+		res["wy"] = np.NaN
 		res["wind_speed"] = np.NaN
 		res["T"] = np.NaN
 	
