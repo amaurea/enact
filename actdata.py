@@ -124,8 +124,11 @@ def read_dark(entry):
 		dataset.DataField("dark_tod", tod, samples=samples, sample_index=1)])
 
 def read_buddies(entry):
-	buddies = try_read(files.read_buddies, "buddies", entry.buddies)
-	return dataset.DataSet([dataset.DataField("buddies", data=buddies)])
+	dets, buddies = try_read(files.read_buddies, "buddies", entry.buddies)
+	if dets is None:
+		return dataset.DataSet([dataset.DataField("buddies", data=buddies)])
+	else:
+		return dataset.DataSet([dataset.DataField("buddies", data=buddies, dets=dets, det_index=0)])
 
 config.default("hwp_fallback", "none", "How to handle missing HWP data. 'none' skips the tod (it it is supposed to have hwp data), while 'raw' falls back on the native hwp data.")
 def read_hwp(entry):
@@ -372,16 +375,31 @@ def calibrate_buddies(data):
 	This assumes that boresight, polangle and point_offsets already have been
 	calibrated."""
 	require(data, ["buddies", "boresight", "det_comps", "point_offset"])
-	mean_bore = np.mean(data.boresight[1:,::100],1)
+	# Expand buddies to full detector format. With the same number of buddies for
+	# each detector, so we can store them in a single array. Missing buddies will
+	# have T=Q=U=0.
+	nmax    = max([len(b) for b in data.buddies])
+	bfull   = np.zeros([nmax,data.ndet,5])
+	for di in range(data.ndet):
+		# The min and slicing here are there to accomodate the detector-independent
+		# buddy format, where the array has length 1 no matter ho many dets we have.
+		b = data.buddies[min(di,len(data.buddies)-1)]
+		bfull[:len(b),di] = b
+		if len(b) < nmax:
+			# Padding buddies use the positions of the first buddy. Why care about
+			# this at all when the padding buddies will be skipped? To avoid overestimating
+			# the local patch bounds in the pointing matrix.
+			bfull[len(b):,di,:2] = b[0,:2]
 	# Recover point offsets in xy plane (this would be unnecessary if
 	# we handled the focalplane to horizontal conversion in the pointing matrix
+	mean_bore = np.mean(data.boresight[1:,::100],1)
 	raw_det_offs = dazel_to_offset(data.point_offset, mean_bore)
-	raw_buddy_offs = raw_det_offs[None] + data.buddies[:,None,:2]
+	raw_buddy_offs = raw_det_offs[None] + bfull[:,:,:2]
 	buddy_offs  = offset_to_dazel(raw_buddy_offs, mean_bore)
 	# The buddies are modeled as only responding to T
 	buddy_comps = np.zeros((len(buddy_offs),data.ndet,3))
-	data.buddies[:,4] *= -1
-	buddy_comps[:,:,0] = np.einsum("dc,bc->bd", data.det_comps, data.buddies[:,2:5])
+	bfull[:,:,4] *= -1
+	buddy_comps[:,:,0] = np.einsum("dc,bdc->bd", data.det_comps, bfull[:,:,2:5])
 	data += dataset.DataSet([
 		dataset.DataField("buddy_offs",  buddy_offs,  dets=data.dets, det_index=1),
 		dataset.DataField("buddy_comps", buddy_comps, dets=data.dets, det_index=1)])

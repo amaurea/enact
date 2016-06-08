@@ -1,7 +1,6 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re
-from enlib.utils import lines
-from enlib import pyactgetdata, zgetdata, bunch
+from enlib import pyactgetdata, zgetdata, bunch, utils
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -12,7 +11,7 @@ def read_gain_correction(fname, id=None):
 	"""Reads per-tod overall gain correction from file. Returns
 	{todID: val}."""
 	res = {}
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		if line.startswith("#"): continue
 		if id and not line.startswith(id): continue
 		tod_id, value = line.split()
@@ -23,7 +22,7 @@ def read_polangle(fname):
 	"""Reads polarization angles in radians, discarding ones marked bad
 	(the negative ones). The format is returned as id,val."""
 	ids, res = [], []
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		if line.startswith("#"): continue
 		toks = line.split()
 		if len(toks) > 2:
@@ -78,7 +77,7 @@ def read_point_template(fname):
 def read_point_offsets(fname):
 	"""Reads per-tod pointing offsets, returning it in the form {todID: [dx,dy])."""
 	res = {}
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		if line[0] == '#': continue
 		toks = line.split()
 		res[toks[0]] = np.array([float(toks[5]),float(toks[6])])
@@ -94,7 +93,7 @@ def read_cut(fname):
 	nsamp  = 0
 	nmax   = 0
 	offset = 0
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		m = rowcol.match(line)
 		if m:
 			nrow, ncol = int(m.group(1)), int(m.group(2))
@@ -156,7 +155,7 @@ def read_site(fname):
 	"""Given a filename or file, parse a file with key = value information and return
 	it as a Bunch."""
 	res = bunch.Bunch()
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		if line.isspace(): continue
 		a = ast.parse(line)
 		id = a.body[0].targets[0].id
@@ -293,7 +292,7 @@ def read_noise_cut(fname, id=None):
 	"""Given a filename, reads the set of detectors to cut for each tod,
 	returning it as a dictionary of id:detlist."""
 	res = {}
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		if line[0] == '#': continue
 		if id and not line.startswith(id): continue
 		toks = line.split()
@@ -304,7 +303,7 @@ def read_pickup_cut(fname):
 	"""Given a filename, reads cuts in the pickup cut format
 	id scan_direction hex azpix1 azpix2 az1 az2 strength."""
 	res = {}
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		if line[0] == '#': continue
 		id, dir, hex, ap1, ap2, az1, az2, strength = line.split()
 		if id not in res: res[id] = []
@@ -323,8 +322,21 @@ def read_dark_dets(fname):
 
 def read_buddies(fname):
 	"""Read a beam decomposition of the near-sidelobe "buddies".
-	Each line should contain xi eta T Q U for one buddy."""
-	return np.loadtxt(fname).reshape(-1,2)
+	Each line should contain xi eta T Q U for one buddy, or
+	det xi eta T Q U for the detector-dependent format. The result
+	will be dets, [ndet][nbuddy,{xi,eta,T,Q,U}]. For the
+	buddy-independent format, dets is None."""
+	res = np.loadtxt(fname, ndmin=2)
+	if res.size == 0: return res.reshape(-1,5)
+	if res.shape[-1] == 5:
+		# detector-independent format
+		return None, [res]
+	else:
+		# detector-dependent format
+		groups = utils.find_equal_groups(res[:,0])
+		dets   = [int(res[g[0],0]) for g in groups]
+		buds   = np.array([res[g,1:] for g in groups])
+		return dets, buds
 
 def read_apex(fname):
 	"""Read weather data from apex from a gzip-compressed text file with
@@ -335,7 +347,7 @@ def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""
 	res = {}
-	for line in lines(fname):
+	for line in utils.lines(fname):
 		if line.isspace(): continue
 		a = ast.parse(line.replace("nan", "'nan'")) # Does not handle nan
 		id = a.body[0].targets[0].id

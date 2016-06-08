@@ -1,6 +1,6 @@
 import numpy as np
 from enlib import coordinates, utils, errors, bunch, tagdb
-from enact import actdata
+from enact import actdata, files
 day_range = [11,23]
 jon_ref   = 1378840304
 
@@ -75,7 +75,7 @@ def grow_polygon(polys, dist):
 
 # Functions for extracting tod stats from tod files. Useful for building
 # up Todinfos.
-def build_tod_stats(entry, Naz=5, Nt=2):
+def build_tod_stats(entry, Naz=8, Nt=2):
 	"""Collect summary information for the tod in the given entry, returning
 	it as a bunch. If some information can't be found, then those fields will
 	be set to a placeholder value (usually NaN), but the fields will still all
@@ -153,6 +153,20 @@ def build_tod_stats(entry, Naz=5, Nt=2):
 	except errors.DataMissing:
 		res["ndet"] = 0
 		res["cut"] = 1.0
+
+	# Try to get hwp info
+	res["hwp"] = False
+	res["hwp_name"] = "none"
+	try:
+		epochs = actdata.try_read(files.read_hwp_epochs, "hwp_epochs", entry.hwp_epochs)
+		t, _, ar = entry.id.split(".")
+		if ar in epochs:
+			for epoch in epochs[ar]:
+				if t >= epoch[0] and t < epoch[1]:
+					res["hwp"] = True
+					res["hwp_name"] = epoch[2]
+	except errors.DataMissing:
+		pass
 
 	return res
 
