@@ -59,9 +59,9 @@ class ACTScan(scan.Scan):
 		if "dark_cut" in d:
 			self.dark_cut = d.dark_cut
 		if "buddy_comps" in d:
-			# Expand buddy_comps to {dt,daz,ddec}
+			# Expand buddy_offs to {dt,daz,ddec}
 			self.buddy_comps = d.buddy_comps
-			self.buddy_offs  = np.concatenate([d.buddy_offs[...,:1],d.buddy_offs],-1)
+			self.buddy_offs  = np.concatenate([d.buddy_offs[...,:1]*0,d.buddy_offs],-1)
 		self.autocut = d.autocut if "autocut" in d else []
 		# Implementation details. d is our DataSet, which we keep around in
 		# because we need it to read tod consistently later. It will *not*

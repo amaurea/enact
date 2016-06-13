@@ -160,6 +160,7 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 	try:
 		epochs = actdata.try_read(files.read_hwp_epochs, "hwp_epochs", entry.hwp_epochs)
 		t, _, ar = entry.id.split(".")
+		t = float(t)
 		if ar in epochs:
 			for epoch in epochs[ar]:
 				if t >= epoch[0] and t < epoch[1]:
