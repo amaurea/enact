@@ -105,11 +105,21 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 		res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
 
-def detvecs_simple(fourier, srate, dets=None):
+config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
+config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
+config.default("nmat_uncorr_nmin",    10, "Min modes per bin in uncorrelated noise matrix")
+def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None):
 	nfreq = fourier.shape[1]
 	ndet  = fourier.shape[0]
+	type  = config.get("nmat_uncorr_type", type)
+	nbin  = config.get("nmat_uncorr_nbin", nbin)
+	nmin  = config.get("nmat_uncorr_nmin", nmin)
 
-	bins_power = enlib.bins.expbin(nfreq, nbin=100, nmin=10)
+	if type is "exp":
+		bins_power = enlib.bins.expbin(nfreq, nbin=nbin, nmin=nmin)
+	elif type is "lin":
+		bins_power = enlib.bins.linbin(nfreq, nbin=nbin, nmin=nmin)
+	else: raise ValueError("No such power binning type '%s'" % type)
 	nbin  = bins_power.shape[0] # expbin may not provide exactly what we want
 	Nd = np.empty((nbin,ndet))
 

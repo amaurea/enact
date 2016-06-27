@@ -375,6 +375,7 @@ def calibrate_buddies(data):
 	This assumes that boresight, polangle and point_offsets already have been
 	calibrated."""
 	require(data, ["buddies", "boresight", "det_comps", "point_offset"])
+	if data.ndet == 0: raise errors.DataMissing("ndet")
 	# Expand buddies to [nbuddy,ndet,dx,dy,T,Q,U]
 	bfull   = expand_buddies(data.buddies, data.ndet)
 	# Recover point offsets in xy plane (this would be unnecessary if
