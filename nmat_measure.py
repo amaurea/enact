@@ -108,7 +108,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
 config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
 config.default("nmat_uncorr_nmin",    10, "Min modes per bin in uncorrelated noise matrix")
-def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None):
+def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None, vecs=None, eigs=None):
 	nfreq = fourier.shape[1]
 	ndet  = fourier.shape[0]
 	type  = config.get("nmat_uncorr_type", type)
@@ -116,19 +116,37 @@ def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None):
 	nmin  = config.get("nmat_uncorr_nmin", nmin)
 
 	if type is "exp":
-		bins_power = enlib.bins.expbin(nfreq, nbin=nbin, nmin=nmin)
+		bins = enlib.bins.expbin(nfreq, nbin=nbin, nmin=nmin)
 	elif type is "lin":
-		bins_power = enlib.bins.linbin(nfreq, nbin=nbin, nmin=nmin)
+		bins = enlib.bins.linbin(nfreq, nbin=nbin, nmin=nmin)
 	else: raise ValueError("No such power binning type '%s'" % type)
-	nbin  = bins_power.shape[0] # expbin may not provide exactly what we want
-	Nd = np.empty((nbin,ndet))
+	nbin  = bins.shape[0] # expbin may not provide exactly what we want
 
-	for bi, b in enumerate(bins_power):
+	if vecs is None: vecs = np.full([ndet,0],1)
+	# Initialize our noise vectors with default values
+	vecs = np.asarray(vecs)
+	nvec = vecs.shape[-1]
+	Nu    = np.zeros([nbin,ndet])
+	E     = np.full([nbin,nvec],1e-10)
+	V     = [vecs]
+	vinds = np.zeros(nbin,dtype=int)
+	for bi, b in enumerate(bins):
 		d     = fourier[:,b[0]:b[1]]
-		Nd[bi] = measure_power(d)
-	V = [np.full([ndet,0],1)]*nbin
-	E = [np.full([0],1e-10)]*nbin
-	return prepare_detvecs(Nd, V, E, bins_power, srate, dets)
+		if vecs.size > 0:
+			# Measure amps when we have non-orthogonal vecs
+			rhs  = vecs.T.dot(d)
+			div  = vecs.T.dot(vecs)
+			amps = np.linalg.solve(div,rhs)
+			E[bi] = np.mean(np.abs(amps)**2,1)
+			# Project out modes for every frequency individually
+			d -= vecs.dot(amps)
+		Nu[bi] = measure_power(d)
+	# Override eigenvalues if necessary. This is useful
+	# for e.g. forcing total common mode subtraction.
+	# eigs must be broadcastable to [nbin,ndet]
+	if eigs is not None: E[:] = eigs
+	#return prepare_detvecs(Nd, V, E, bins, srate, dets)
+	return prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds)
 
 # This one should have been better than Jon's model, but simulations
 # show that nmat=build(sqrt(C)r1); nmat.apply(Cr2) is whiter for his

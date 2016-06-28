@@ -523,6 +523,7 @@ config.default("cut_ground",     False, "Whether to apply the turnaround cut.")
 config.default("cut_sun",        False, "Whether to apply the sun distance cut.")
 config.default("cut_moon",       False, "Whether to apply the moon distance cut.")
 config.default("cut_pickup",     False, "Whether to apply the pickup cut.")
+config.default("cut_obj",        "",    "General list of celestial objects to cut")
 config.default("cut_stationary", True,  "Whether to apply the stationary ends cut")
 config.default("cut_tod_ends",   True,  "Whether to apply the tod ends cut")
 config.default("cut_mostly_cut", True,  "Whether to apply the mostly cut detector cut")
@@ -544,9 +545,12 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# insert an autocut datafield, to keep track of how much data each
 	# automatic cut cost us
 	d += dataset.DataField("autocut", [])
-	def addcut(label, dcut):
+	def addcut(label, dcut, targets="cn"):
 		n0, dn = d.cut.sum(), dcut.sum()
-		d.cut = d.cut + dcut
+		if "c" in targets:
+			d.cut = d.cut + dcut
+		if "n" in targets:
+			d.cut_noiseest = d.cut_noiseest + dcut
 		if isinstance(dcut, rangelist.Rangelist): dn *= ndet
 		d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
 	if config.get("cut_stationary") and "boresight" in d:
@@ -561,6 +565,16 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		addcut("avoidance",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Sun", config.get("cut_sun_dist")*np.pi/180))
 	if config.get("cut_moon", moon) and "boresight" in d and "point_offset" in d and "site" in d:
 		addcut("moon",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180))
+	if config.get("cut_obj"):
+		objs = config.get("cut_obj").split(",")
+		for obj in objs:
+			toks = obj.split(":")
+			objname = toks[0]
+			dist    = 0.1*utils.degree
+			if len(toks) > 1: dist = float(toks[1])*utils.degree
+			# Hack: only cut for noise estimation purposes if dist is negative
+			targets = "cn" if dist > 0 else "n"
+			addcut(obj, cuts.avoidance_cut(d.boresight, d.point_offset, d.site, objname, dist), targets=targets)
 	if config.get("cut_pickup", pickup) and "boresight" in d and "pickup_cut" in d:
 		addcut("pickup",cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut))
 	if config.get("cut_mostly_cut"):
