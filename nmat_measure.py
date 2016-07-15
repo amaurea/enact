@@ -413,6 +413,9 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 				noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes)
 			elif self.model == "white":
 				noise_model = nmat.NoiseMatrix()
+			elif self.model == "uncorr":
+				ft = fft.rfft(tod) * tod.shape[1]**-0.5
+				noise_model = detvecs_simple(ft, srate)
 			else:
 				raise ValueError("Unknown noise model '%s'" % self.model)
 		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
