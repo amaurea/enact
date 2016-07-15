@@ -106,10 +106,12 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	return res
 
 def detvecs_simple(fourier, srate, dets=None):
+	"""Simple noise model with no inter-detector noise correlations, but
+	still time correlations."""
 	nfreq = fourier.shape[1]
 	ndet  = fourier.shape[0]
 
-	bins_power = enlib.bins.expbin(nfreq, nbin=100, nmin=10)
+	bins_power = enlib.bins.expbin(nfreq, nbin=200, nmin=10)
 	nbin  = bins_power.shape[0] # expbin may not provide exactly what we want
 	Nd = np.empty((nbin,ndet))
 
@@ -383,6 +385,9 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 			if self.model == "jon":
 				ft = fft.rfft(tod) * tod.shape[1]**-0.5
 				noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes)
+			elif self.model == "uncorr":
+				ft = fft.rfft(tod) * tod.shape[1]**-0.5
+				noise_model = detvecs_simple(ft, srate)
 			elif self.model == "white":
 				noise_model = nmat.NoiseMatrix()
 			else:
