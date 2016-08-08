@@ -450,9 +450,12 @@ def calibrate_tod_fourier(data):
 	if data.tod.size == 0: return data
 	ft     = fft.rfft(data.tod)
 	freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
+	# Deconvolve the butterworth filter
 	butter = filters.butterworth_filter(freqs)
+	ft /= butter
+	# And the time constants
 	for di in range(len(ft)):
-		ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
+		ft[di] /= filters.tconst_filter(freqs, data.tau[di])
 	fft.irfft(ft, data.tod, normalize=True)
 	#np.savetxt("test_enki1/tod_detau.txt", data.tod[0])
 	del ft
