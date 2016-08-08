@@ -21,7 +21,8 @@ class ACTScan(scan.Scan):
 		if d is None:
 			d = actdata.read(entry, self.fields, verbose=verbose)
 			d = actdata.calibrate(d, verbose=verbose)
-			d.restrict(dets=d.dets[subdets])
+			if subdets is not None:
+				d.restrict(dets=d.dets[subdets])
 		if d.ndet == 0 or d.nsamp == 0: raise errors.DataMissing("No data in scan")
 		ndet = d.ndet
 		# Necessary components for Scan interface

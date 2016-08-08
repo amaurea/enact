@@ -590,6 +590,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# Get rid of completely cut detectors
 	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
 	d.restrict(d.dets[keep])
+	ndet, nsamp = d.ndet, d.nsamp
 
 	def cut_all_if(label, condition):
 		if condition: dcut = rangelist.Rangelist.ones(nsamp)
@@ -601,7 +602,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	cut_all_if("tod_mindet", config.get("cut_tod_mindet") > ndet)
 	# Get rid of completely cut detectors again
 	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
-	d.restrict(d.dets[keep])
+	d.restrict(dets=d.dets[keep])
 
 	return d
 

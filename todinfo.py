@@ -60,6 +60,7 @@ def point_in_polygon_safe(points, polygons):
 	polygons[0] = utils.rewind(polygons[0], points[0], 360)
 	return utils.point_in_polygon(points.T, polygons.T)
 def grow_polygon(polys, dist):
+	print "FIXME: grow_polygon is wrong"
 	polys = np.array(polys)
 	dist  = np.zeros(2) + dist
 	# Compensate for curvature
