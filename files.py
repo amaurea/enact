@@ -343,6 +343,17 @@ def read_apex(fname):
 	columns [ctime] [value]."""
 	return np.loadtxt(fname).reshape(-1,2)
 
+def read_tags(fname):
+	"""Read a set of detector tag definitions from file. Returns a
+	dict[tag] -> array of ids."""
+	res = {}
+	for line in utils.lines(fname):
+		toks = line.split()
+		name = toks[0]
+		ids  = np.array([int(tok) for tok in toks[1:]],dtype=int)
+		res[name] = ids
+	return res
+
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
 	return it as a dictionary of names->lists, while preserving nan values."""

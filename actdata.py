@@ -189,6 +189,28 @@ def read_apex(entry):
 		dataset.DataField("apex",bunch.Bunch(pwv=pwv, wind_speed=wind_speed,
 		wind_dir=wind_dir, temperature=temperature))])
 
+def read_tags(entry):
+	tag_defs = try_read(files.read_tags, "tag_defs", entry.tag_defs)
+	if not entry.tag:
+		# If no tag was specified, we won't restrict the detectors at all,
+		# so the datafield won't have a dets specification
+		return dataset.DataSet([
+			dataset.DataField("tag_defs", tag_defs),
+			dataset.DataField("tags", [])])
+	else:
+		# Otherwise find the union of the tagged detectors
+		tags = entry.tag.split(",")
+		dets = None
+		for tag in tags:
+			if tag not in tag_defs:
+				raise errors.DataMissing("Tag %s not defined" % (tag))
+			if dets is None: dets = set(tag_defs[tag])
+			else: dets &= set(tag_defs[tag])
+			dets = np.array(list(dets),dtype=int)
+		return dataset.DataSet([
+			dataset.DataField("tag_defs", tag_defs),
+			dataset.DataField("tags", tags, dets=dets)])
+
 def read_tod_shape(entry, moby=False):
 	if moby: dets, nsamp = try_read(files.read_tod_moby, "tod_shape", entry.tod, shape_only=True)
 	else:    dets, nsamp = try_read(files.read_tod,      "tod_shape", entry.tod, shape_only=True)
@@ -224,9 +246,10 @@ readers = {
 		"dark": read_dark,
 		"buddies": read_buddies,
 		"apex": read_apex,
+		"tags": read_tags,
 	}
 
-default_fields = ["layout","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
+default_fields = ["layout","tags","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
 def read(entry, fields=None, exclude=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
