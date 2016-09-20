@@ -268,7 +268,7 @@ def read(entry, fields=None, exclude=None, verbose=False):
 		if d is None: d = d2
 		else: d = dataset.merge([d,d2])
 		t2 = time.time()
-		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1)
+		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1) + ("" if d.ndet is None else " %4d dets" % d.ndet)
 	return d
 
 def read_combo(entries, fields=None, exclude=None, verbose=False):
@@ -371,6 +371,13 @@ def calibrate_hwp(data):
 		del data.hwp
 		hwp = np.zeros(data.nsamp)
 		data += dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)
+	# Add hwp_phase, which represents the cos and sine of the hwp signal, or
+	# 0 if no hwp is present
+	phase = np.zeros([data.nsamp,2])
+	if data.hwp_id != "none":
+		phase[:,0] = np.cos(4*data.hwp)
+		phase[:,1] = np.sin(4*data.hwp)
+	data += dataset.DataField("hwp_phase", phase, samples=[0,data.nsamp], sample_index=0)
 	return data
 
 config.default("fft_factors", "2,3,5,7,11,13", "Crop TOD lengths to the largest number with only the given list of factors. If the list includes 1, no cropping will happen.")

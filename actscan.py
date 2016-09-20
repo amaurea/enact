@@ -5,7 +5,7 @@ from enlib import utils, scan, nmat, resample, config, errors
 config.default("cut_noise_whiteness", False, "Whether to apply the noise_cut or not")
 config.default("cut_spikes", True, "Whether to apply the spike cut or not")
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
-config.default("noise_model", "file", "Which noise model to use. Can be 'file' or 'jon'")
+config.default("noise_model", "jon", "Which noise model to use. Can be 'file' or 'jon'")
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False, dark=False):
@@ -37,13 +37,8 @@ class ACTScan(scan.Scan):
 		self.beam      = d.beam
 		self.pointsrcs = d.pointsrcs
 		self.comps     = d.det_comps
-		# Set up the hwp rotation matrix per sample
-		#print "moo hwp"
-		#d.hwp *= -1
 		self.hwp = d.hwp
-		self.hwp_phase = np.zeros([len(self.boresight),2])
-		self.hwp_phase[:,0] = np.cos(4*d.hwp)
-		self.hwp_phase[:,1] = np.sin(4*d.hwp)
+		self.hwp_phase = d.hwp_phase
 		self.dets  = d.dets
 		self.dgrid = (d.layout.nrow, d.layout.ncol)
 		self.layout = d.layout
