@@ -1,4 +1,4 @@
-import numpy as np, time
+import numpy as np, time, os
 from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch
 from enact import files, cuts, filters
@@ -218,9 +218,12 @@ def read_tod_shape(entry, moby=False):
 		dataset.DataField("tod_shape", dets=dets, samples=[0,nsamp]),
 		dataset.DataField("entry", entry)])
 
-def read_tod(entry, dets=None, moby=False):
+def read_tod(entry, dets=None, moby=False, nthread=None):
+	if nthread is None:
+		# Too many threads is bad due to communication overhead and file system bottleneck
+		nthread = min(5,int(os.environ["OMP_NUM_THREADS"]))
 	if moby: dets, tod = try_read(files.read_tod_moby, "tod", entry.tod, ids=dets)
-	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=dets)
+	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=dets, nthread=nthread)
 	return dataset.DataSet([
 		dataset.DataField("tod", tod, dets=dets, samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
 		dataset.DataField("entry", entry)])
