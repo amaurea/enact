@@ -273,6 +273,7 @@ def read(entry, fields=None, exclude=None, verbose=False):
 
 def read_combo(entries, fields=None, exclude=None, verbose=False):
 	# Read in each scan individually
+	if len(entries) < 1: raise errors.DataMissing("Empty entry list in read_combo")
 	if fields is None: fields = list(default_fields)
 	if exclude is None: exclude = []
 	for ex in exclude: fields.remove(ex)
