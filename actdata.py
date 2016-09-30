@@ -371,14 +371,15 @@ def calibrate_hwp(data):
 	if data.hwp_id == "none" and data.nsamp:
 		del data.hwp
 		hwp = np.zeros(data.nsamp)
-		data += dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)
+		data += dataset.DataField("hwp", hwp, samples=data.samples, sample_index=0)
 	# Add hwp_phase, which represents the cos and sine of the hwp signal, or
 	# 0 if no hwp is present
 	phase = np.zeros([data.nsamp,2])
 	if data.hwp_id != "none":
 		phase[:,0] = np.cos(4*data.hwp)
 		phase[:,1] = np.sin(4*data.hwp)
-	data += dataset.DataField("hwp_phase", phase, samples=[0,data.nsamp], sample_index=0)
+	data += dataset.DataField("hwp_phase", phase, samples=data.samples, sample_index=0)
+	print data.hwp_id, data.hwp_source, data.hwp_phase[:4]
 	return data
 
 config.default("fft_factors", "2,3,5,7,11,13", "Crop TOD lengths to the largest number with only the given list of factors. If the list includes 1, no cropping will happen.")

@@ -1,6 +1,6 @@
 import numpy as np, time
 from enact import nmat_measure, actdata
-from enlib import utils, scan, nmat, resample, config, errors
+from enlib import utils, scan, nmat, resample, config, errors, bench
 
 config.default("cut_noise_whiteness", False, "Whether to apply the noise_cut or not")
 config.default("cut_spikes", True, "Whether to apply the spike cut or not")
@@ -72,7 +72,7 @@ class ACTScan(scan.Scan):
 		self.entry = entry
 		self.id = entry.id
 		self.sampslices = []
-	def get_samples(self, verbose=False):
+	def get_samples(self, verbose=True):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
 		# Because we've read the tod_shape field earlier, we know that reading tod
