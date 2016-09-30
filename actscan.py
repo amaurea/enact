@@ -72,7 +72,7 @@ class ACTScan(scan.Scan):
 		self.entry = entry
 		self.id = entry.id
 		self.sampslices = []
-	def get_samples(self, verbose=True):
+	def get_samples(self, verbose=False):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
 		# Because we've read the tod_shape field earlier, we know that reading tod
