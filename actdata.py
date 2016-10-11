@@ -379,7 +379,6 @@ def calibrate_hwp(data):
 		phase[:,0] = np.cos(4*data.hwp)
 		phase[:,1] = np.sin(4*data.hwp)
 	data += dataset.DataField("hwp_phase", phase, samples=data.samples, sample_index=0)
-	print data.hwp_id, data.hwp_source, data.hwp_phase[:4]
 	return data
 
 config.default("fft_factors", "2,3,5,7,11,13", "Crop TOD lengths to the largest number with only the given list of factors. If the list includes 1, no cropping will happen.")
