@@ -13,7 +13,7 @@ def read_gain_correction(fname, id=None):
 	res = {}
 	for line in utils.lines(fname):
 		if line.startswith("#"): continue
-		if id and not line.startswith(id): continue
+		if id and not line.startswith(id) and not line.startswith("*"): continue
 		tod_id, value = line.split()
 		res[tod_id] = float(value)
 	return res
@@ -215,7 +215,7 @@ def read_layout(fname):
 	pcb  = np.array(pcb)
 	return bunch.Bunch(rows=rows, cols=cols, dark=dark, pcb=pcb, nrow=np.max(rows)+1, ncol=np.max(cols)+1, ndet=len(rows))
 
-def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False, nthread=1):
+def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_only=False, nthread=1):
 	"""Given a filename or dirfile, reads the time ordered data from the file,
 	returning ids,data. If the ids argument is specified, only those ids will
 	be retrieved. The mapping argument defines the mapping between ids and
@@ -224,9 +224,16 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_o
 	which can give a significant speedup. If called this way, the function is not thread
 	safe."""
 	# Find which ids to read
-	if ids is None: ids = np.arange(ndet)
-	ids = np.asarray(ids)
-	rowcol = ids if ids.ndim == 2 else np.asarray(mapping(ids))
+	def get_ids(dfile, ids, ndet, mapping):
+		if ids is None:
+			fields = set(dfile.fields)
+			id, ids = 0, []
+			while "tesdatar%02dc%02d" % tuple(mapping(id)) in fields:
+				if ndet is not None and id >= ndet: break
+				ids.append(id)
+				id += 1
+		ids = np.asarray(ids)
+		return ids
 	def read(dfile, rowcol):
 		global read_tod_single_dfile
 		reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
@@ -251,9 +258,14 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_o
 		return res
 	if isinstance(fname, basestring):
 		with pyactgetdata.dirfile(fname) as dfile:
+			ids = get_ids(dfile, ids, ndet, mapping)
+			rowcol = np.asarray(mapping(ids))
 			return ids, read(dfile, rowcol)
 	else:
-		return ids, read(fname, rowcol)
+		dfile = fname
+		ids = get_ids(dfile, ids, ndet, mapping)
+		rowcol = np.asarray(mapping(ids))
+		return ids, read(dfile, rowcol)
 
 # Helpers for parallel tod read
 read_tod_single_dfile = None

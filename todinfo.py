@@ -7,17 +7,15 @@ jon_ref   = 1378840304
 # Implement our todinfo database using a Tagdb
 class Todinfo(tagdb.Tagdb):
 	def __init__(self, data, sort="id"):
-		tagdb.Tagdb.__init__(self, data, sort=sort)
-	@staticmethod
-	def read(fname, type=None):
-		data = tagdb.Tagdb.read(fname, type=type, matchfun=is_selected_tod_loic).data
-		return Todinfo(data)
+		tagdb.Tagdb.__init__(self, data, sort=sort, default_fields=["sel",("t",np.NaN)], default_query="sel,isfinite(t)")
 	def get_funcs(self):
 		res = tagdb.Tagdb.get_funcs(self)
 		# Define wrapper here for the default argument
-		def hits(point, polys=self.data["bounds"]):
+		def hits(point, polys=None):
+			if polys is None: polys = self.data["bounds"]
 			return point_in_polygon_safe(point, polys)
-		def dist(point, ref=[self.data["ra"],self.data["dec"]]):
+		def dist(point, ref=None):
+			if ref is None: ref=[self.data["ra"],self.data["dec"]]
 			return utils.angdist(np.array(point)*utils.degree,np.array(ref)*utils.degree, zenith=False)/utils.degree
 		def grow(polys, dist):
 			return grow_polygon(polys*utils.degree, dist*utils.degree)/utils.degree
@@ -30,9 +28,29 @@ class Todinfo(tagdb.Tagdb):
 		lines = []
 		n = len(self)
 		n1, n2 = (n, 0) if not nmax or n <= nmax else (nmax/4, nmax/4)
+		finfo = [
+				("id",  "%25s", "%25s"),
+				("sel", "%3d",   "%3s"),
+				("hour","%5.2f", "%5s"),
+				("az",  "%7.2f", "%7s"),
+				("el",  "%6.2f", "%6s"),
+				("ra",  "%6.2f", "%6s"),
+				("dec", "%6.2f", "%6s"),
+				("pwv", "%5.2f", "%5s"),
+				("wx",  "%6.2f", "%6s"),
+				("wy",  "%6.2f", "%6s"),
+		]
+		# Prune so we can still print something if the normal fields are missing
+		finfo = [fi for fi in finfo if fi[0] in self.data]
+		fdata = [self.data[fi[0]] for fi in finfo]
+		lfmt  = " " + " ".join([fi[1] for fi in finfo])
+		hfmt  = "#" + " ".join([fi[2] for fi in finfo])
+		hnames= tuple([fi[0] for fi in finfo])
+		# Ok, generate the output lines
+		header= hfmt % hnames + " tags"
+		lines = [header]
 		def pline(i):
-			line = "%s %5.2f %7.2f %6.2f %6.2f %6.2f %5.2f %6.2f %6.2f" % tuple([
-				self.data[k][i] for k in ["id","hour","az","el","ra","dec","pwv","wx","wy"]])
+			line = lfmt % tuple([fd[i] for fd in fdata])
 			line += " " + " ".join(sorted([key for key,val in self.data.iteritems() if key != "id" and val.dtype == bool and val.ndim == 1 and val[i]]))
 			return line
 		for i in range(0,n1):
@@ -43,12 +61,42 @@ class Todinfo(tagdb.Tagdb):
 				lines.append(pline(i))
 		return "\n".join(lines)
 	def __str__(self): return self.__repr__(100)
+	@classmethod
+	def read_txt(cls, fname):
+		"""Read a Tagdb from text files, supporting Loic's selelected tod format"""
+		datas = []
+		for subfile, tags in tagdb.parse_tagfile_top(fname):
+			data = parse_tagfile_loic(subfile)
+			for tag in tags:
+				data[tag] = np.full(len(data["id"]), True, dtype=bool)
+			datas.append(data)
+		return cls(tagdb.merge(datas))
 
-def is_selected_tod_loic(line):
-	toks = line.split()
-	if len(toks) != 6 or int(toks[5]) == 2:
-		return toks[0]
-	else: return None
+def parse_tagfile_loic(fname):
+	ids = []
+	sel = []
+	with open(fname,"r") as f:
+		for line in f:
+			line = line.rstrip()
+			if len(line) < 1 or line[0] == "#": continue
+			toks = line.split()
+			# There are two formats
+			if len(toks) == 6:
+				# 1. [id] [hour] [alt] [az] [pwv] [cut status]
+				# Here a tod is only sel if the status is 2
+				ids.append(toks[0])
+				sel.append(int(toks[5]) == 2)
+			elif len(toks) == 1:
+				# 2. path to file. Here we will extract the id from
+				# the path, and mark everything as *not* selectd.
+				# So /all will be needed to access these.
+				id = toks[0].split("/")[-1]
+				if id.endswith(".zip"): id = id[:-4]
+				ids.append(id)
+				sel.append(False)
+	ids = np.asarray(ids + ["foo"])[:-1]
+	sel = np.asarray(sel)
+	return {"id":ids, "sel":sel}
 
 def read(fname, type=None):
 	return Todinfo.read(fname, type)
