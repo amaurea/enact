@@ -54,6 +54,7 @@ def read(fname, type=None):
 	return Todinfo.read(fname, type)
 
 # Functions that can be used in todinfo queries
+# Coordinate order is ra,dec
 def point_in_polygon_safe(points, polygons):
 	points   = np.asarray(points)
 	polygons = np.array(polygons)
