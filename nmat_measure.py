@@ -411,6 +411,9 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 			if self.model == "jon":
 				ft = fft.rfft(tod) * tod.shape[1]**-0.5
 				noise_model = detvecs_jon(ft, srate, cut_bins=self.spikes)
+			elif self.model == "uncorr":
+				ft = fft.rfft(tod) * tod.shape[1]**-0.5
+				noise_model = detvecs_simple(ft, srate)
 			elif self.model == "white":
 				noise_model = nmat.NoiseMatrix()
 			else:

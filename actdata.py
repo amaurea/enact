@@ -189,6 +189,28 @@ def read_apex(entry):
 		dataset.DataField("apex",bunch.Bunch(pwv=pwv, wind_speed=wind_speed,
 		wind_dir=wind_dir, temperature=temperature))])
 
+def read_tags(entry):
+	tag_defs = try_read(files.read_tags, "tag_defs", entry.tag_defs)
+	if not entry.tag:
+		# If no tag was specified, we won't restrict the detectors at all,
+		# so the datafield won't have a dets specification
+		return dataset.DataSet([
+			dataset.DataField("tag_defs", tag_defs),
+			dataset.DataField("tags", [])])
+	else:
+		# Otherwise find the union of the tagged detectors
+		tags = entry.tag.split(",")
+		dets = None
+		for tag in tags:
+			if tag not in tag_defs:
+				raise errors.DataMissing("Tag %s not defined" % (tag))
+			if dets is None: dets = set(tag_defs[tag])
+			else: dets &= set(tag_defs[tag])
+			dets = np.array(list(dets),dtype=int)
+		return dataset.DataSet([
+			dataset.DataField("tag_defs", tag_defs),
+			dataset.DataField("tags", tags, dets=dets)])
+
 def read_tod_shape(entry, moby=False):
 	if moby: dets, nsamp = try_read(files.read_tod_moby, "tod_shape", entry.tod, shape_only=True)
 	else:    dets, nsamp = try_read(files.read_tod,      "tod_shape", entry.tod, shape_only=True)
@@ -224,9 +246,10 @@ readers = {
 		"dark": read_dark,
 		"buddies": read_buddies,
 		"apex": read_apex,
+		"tags": read_tags,
 	}
 
-default_fields = ["layout","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
+default_fields = ["layout","tags","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
 def read(entry, fields=None, exclude=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
@@ -245,11 +268,12 @@ def read(entry, fields=None, exclude=None, verbose=False):
 		if d is None: d = d2
 		else: d = dataset.merge([d,d2])
 		t2 = time.time()
-		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1)
+		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1) + ("" if d.ndet is None else " %4d dets" % d.ndet)
 	return d
 
 def read_combo(entries, fields=None, exclude=None, verbose=False):
 	# Read in each scan individually
+	if len(entries) < 1: raise errors.DataMissing("Empty entry list in read_combo")
 	if fields is None: fields = list(default_fields)
 	if exclude is None: exclude = []
 	for ex in exclude: fields.remove(ex)
@@ -347,7 +371,14 @@ def calibrate_hwp(data):
 	if data.hwp_id == "none" and data.nsamp:
 		del data.hwp
 		hwp = np.zeros(data.nsamp)
-		data += dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0)
+		data += dataset.DataField("hwp", hwp, samples=data.samples, sample_index=0)
+	# Add hwp_phase, which represents the cos and sine of the hwp signal, or
+	# 0 if no hwp is present
+	phase = np.zeros([data.nsamp,2])
+	if data.hwp_id != "none":
+		phase[:,0] = np.cos(4*data.hwp)
+		phase[:,1] = np.sin(4*data.hwp)
+	data += dataset.DataField("hwp_phase", phase, samples=data.samples, sample_index=0)
 	return data
 
 config.default("fft_factors", "2,3,5,7,11,13", "Crop TOD lengths to the largest number with only the given list of factors. If the list includes 1, no cropping will happen.")
@@ -450,9 +481,12 @@ def calibrate_tod_fourier(data):
 	if data.tod.size == 0: return data
 	ft     = fft.rfft(data.tod)
 	freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
+	# Deconvolve the butterworth filter
 	butter = filters.butterworth_filter(freqs)
+	ft /= butter
+	# And the time constants
 	for di in range(len(ft)):
-		ft[di] /= filters.tconst_filter(freqs, data.tau[di])*butter
+		ft[di] /= filters.tconst_filter(freqs, data.tau[di])
 	fft.irfft(ft, data.tod, normalize=True)
 	#np.savetxt("test_enki1/tod_detau.txt", data.tod[0])
 	del ft
@@ -590,6 +624,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# Get rid of completely cut detectors
 	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
 	d.restrict(d.dets[keep])
+	ndet, nsamp = d.ndet, d.nsamp
 
 	def cut_all_if(label, condition):
 		if condition: dcut = rangelist.Rangelist.ones(nsamp)
@@ -601,7 +636,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	cut_all_if("tod_mindet", config.get("cut_tod_mindet") > ndet)
 	# Get rid of completely cut detectors again
 	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
-	d.restrict(d.dets[keep])
+	d.restrict(dets=d.dets[keep])
 
 	return d
 

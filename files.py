@@ -84,48 +84,82 @@ def read_point_offsets(fname):
 	return res
 
 def read_cut(fname):
-	"""Reads the act cut format, returning ids,cuts,offset, where cuts is a Multirange
+	"""Read the act cut format, returning ids, cuts, offset, where cuts is a Multirange
 	object."""
-	ids, cuts = [], []
-	header = re.compile(r"^(\w+) *= *(\w+)$")
-	rowcol = re.compile(r"^(\d+) +(\d+)$")
-	entry  = re.compile(r"^(?:.+ )?r(\d+)c(\d+):(.*)$")
-	nsamp  = 0
-	nmax   = 0
-	offset = 0
+	nsamp, ndet, offset = None, None, None
+	dets, cuts = [], []
 	for line in utils.lines(fname):
-		m = rowcol.match(line)
-		if m:
-			nrow, ncol = int(m.group(1)), int(m.group(2))
-			continue
-		m = header.match(line)
-		if m:
-			key, val = m.groups()
-			if key == "n_samp": nsamp = int(val)
-			elif key == "samp_offset": offset = int(val)
-			elif key == "n_row": nrow = int(val)
-			elif key == "n_col": ncol = int(val)
-			continue
-		m = entry.match(line)
-		if m:
-			r, c, toks = int(m.group(1)), int(m.group(2)), m.group(3).split()
-			id = r*ncol+c
-			ranges = np.array([[int(i) for i in word[1:-1].split(",")] for word in toks])
-			nmax   = max(nmax,np.max(ranges[:,1]))
-			# Cap to nsamp if available
-			if nsamp: ranges[:,1] = np.minimum(nsamp, ranges[:,1])
-			ranges[:,0] = np.maximum(0, ranges[:,0])
-			ids.append(id)
-			cuts.append(ranges)
-			continue
-	# If there is no cut information, assume *fully cut*. Also prune totally cut detectors
-	if nsamp == 0: nsamp = nmax
-	oids, ocuts = [], []
-	for id, cut in zip(ids, cuts):
-		if len(cut) > 1 or len(cut) == 1 and not (np.all(cut[0]==[0,0x7fffffff]) or np.all(cut[0]==[0,nsamp])):
-			oids.append(id)
-			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
-	return oids, enlib.rangelist.Multirange(ocuts), offset
+		if "=" in line:
+			# Header key-value pair
+			toks = line.split()
+			if   toks[0] == "n_det":  ndet  = int(toks[2])
+			elif toks[0] == "n_samp": nsamp = int(toks[2])
+			elif toks[0] == "samp_offset": offset = int(toks[2])
+			else: continue # Ignore others
+		elif ":" in line:
+			parts = line.split(":")
+			uid   = int(parts[0].split()[0])
+			if len(parts) > 1 and "(" in parts[1]:
+				toks  = parts[1].split()
+				ranges = np.array([[int(w) for w in tok[1:-1].split(",")] for tok in toks])
+				ranges = np.minimum(ranges, nsamp)
+			# Handle uncut detectors
+			else:
+				ranges = np.zeros([0,2],dtype=int)
+			dets.append(uid)
+			cuts.append(enlib.rangelist.Rangelist(ranges,nsamp))
+	# Filter out fully cut tods
+	odets, ocuts = [], []
+	for det, cut in zip(dets, cuts):
+		if cut.sum() < cut.n:
+			odets.append(det)
+			ocuts.append(cut)
+	ocuts = enlib.rangelist.Multirange(ocuts)
+	return odets, ocuts, offset
+
+#def read_cut(fname):
+#	"""Reads the act cut format, returning ids,cuts,offset, where cuts is a Multirange
+#	object."""
+#	ids, cuts = [], []
+#	header = re.compile(r"^(\w+) *= *(\w+)$")
+#	rowcol = re.compile(r"^(\d+) +(\d+)$")
+#	entry  = re.compile(r"^(?:.+ )?r(\d+)c(\d+):(.*)$")
+#	nsamp  = 0
+#	nmax   = 0
+#	offset = 0
+#	for line in utils.lines(fname):
+#		m = rowcol.match(line)
+#		if m:
+#			nrow, ncol = int(m.group(1)), int(m.group(2))
+#			continue
+#		m = header.match(line)
+#		if m:
+#			key, val = m.groups()
+#			if key == "n_samp": nsamp = int(val)
+#			elif key == "samp_offset": offset = int(val)
+#			elif key == "n_row": nrow = int(val)
+#			elif key == "n_col": ncol = int(val)
+#			continue
+#		m = entry.match(line)
+#		if m:
+#			r, c, toks = int(m.group(1)), int(m.group(2)), m.group(3).split()
+#			id = r*ncol+c
+#			ranges = np.array([[int(i) for i in word[1:-1].split(",")] for word in toks])
+#			nmax   = max(nmax,np.max(ranges[:,1]))
+#			# Cap to nsamp if available
+#			if nsamp: ranges[:,1] = np.minimum(nsamp, ranges[:,1])
+#			ranges[:,0] = np.maximum(0, ranges[:,0])
+#			ids.append(id)
+#			cuts.append(ranges)
+#			continue
+#	# If there is no cut information, assume *fully cut*. Also prune totally cut detectors
+#	if nsamp == 0: nsamp = nmax
+#	oids, ocuts = [], []
+#	for id, cut in zip(ids, cuts):
+#		if len(cut) > 1 or len(cut) == 1 and not (np.all(cut[0]==[0,0x7fffffff]) or np.all(cut[0]==[0,nsamp])):
+#			oids.append(id)
+#			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
+#	return oids, enlib.rangelist.Multirange(ocuts), offset
 
 def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
 	ndet, nsamp = cuts.shape
@@ -342,6 +376,17 @@ def read_apex(fname):
 	"""Read weather data from apex from a gzip-compressed text file with
 	columns [ctime] [value]."""
 	return np.loadtxt(fname).reshape(-1,2)
+
+def read_tags(fname):
+	"""Read a set of detector tag definitions from file. Returns a
+	dict[tag] -> array of ids."""
+	res = {}
+	for line in utils.lines(fname):
+		toks = line.split()
+		name = toks[0]
+		ids  = np.array([int(tok) for tok in toks[1:]],dtype=int)
+		res[name] = ids
+	return res
 
 def read_pylike_format(fname):
 	"""Givnen a file with a simple python-like format with lines of foo = [num,num,num,...],
