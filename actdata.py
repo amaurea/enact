@@ -1,4 +1,4 @@
-import numpy as np, time
+import numpy as np, time, os
 from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch
 from enact import files, cuts, filters
@@ -13,9 +13,19 @@ def try_read(method, desc, fnames, *args, **kwargs):
 		except (IOError,zgetdata.OpenError) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join(fnames))
 
+def get_dict_wild(d, key):
+	if key in d: return d[key]
+	if '*' in d: return d['*']
+	raise KeyError(key)
+def get_dict_default(d, key, default):
+	if key in d: return d[key]
+	else: return default
+
 def read_gain(entry):
 	dets, gain_raw = try_read(files.read_gain, "gain", entry.gain)
-	try: correction = try_read(files.read_gain_correction, "gain_correction", entry.gain_correction, id=entry.id)[entry.id]
+	try:
+		corrs = try_read(files.read_gain_correction, "gain_correction", entry.gain_correction, id=entry.id)
+		correction  = get_dict_wild(corrs, entry.id)
 	except KeyError: raise errors.DataMissing("gain_correction id: " + entry.id)
 	mask = np.isfinite(gain_raw)*(gain_raw != 0)
 	dets, gain_raw = dets[mask], gain_raw[mask]
@@ -45,6 +55,8 @@ def read_cut(entry):
 		dataset.DataField("entry", entry)])
 
 def read_cut_noiseest(entry):
+	if "cut_noiseest" not in entry or not entry.cut_noiseest:
+		entry.cut_noiseest = entry.cut
 	dets, data, offset = try_read(files.read_cut, "cut_noiseest", entry.cut_noiseest)
 	samples = [offset, offset + data.shape[-1]]
 	return dataset.DataSet([
@@ -54,7 +66,7 @@ def read_cut_noiseest(entry):
 def read_point_offsets(entry, no_correction=False):
 	dets, template = try_read(files.read_point_template, "point_template", entry.point_template)
 	if not no_correction:
-		try: correction = try_read(files.read_point_offsets, "point_offsets", entry.point_offsets)[entry.id]
+		try: correction = get_dict_wild(try_read(files.read_point_offsets, "point_offsets", entry.point_offsets), entry.id)
 		except KeyError: raise errors.DataMissing("point_offsets id: " + entry.id)
 	else:
 		correction = 0
@@ -218,9 +230,12 @@ def read_tod_shape(entry, moby=False):
 		dataset.DataField("tod_shape", dets=dets, samples=[0,nsamp]),
 		dataset.DataField("entry", entry)])
 
-def read_tod(entry, dets=None, moby=False):
+def read_tod(entry, dets=None, moby=False, nthread=None):
+	if nthread is None:
+		# Too many threads is bad due to communication overhead and file system bottleneck
+		nthread = min(5,int(get_dict_default(os.environ,"OMP_NUM_THREADS",5)))
 	if moby: dets, tod = try_read(files.read_tod_moby, "tod", entry.tod, ids=dets)
-	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=dets)
+	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=dets, nthread=nthread)
 	return dataset.DataSet([
 		dataset.DataField("tod", tod, dets=dets, samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
 		dataset.DataField("entry", entry)])
@@ -680,7 +695,7 @@ def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 			if strict: raise
 			status = 0
 		t2 = time.time()
-		if verbose: print "calib %-14s in %6.3f s" % (op, t2-t1) + ("" if status else " [skipped]")
+		if verbose: print "calib %-14s in %6.3f s" % (op, t2-t1) + (("" if data.ndet is None else " %4d dets" % data.ndet) if status else " [skipped]")
 	return data
 
 # Helper functions
