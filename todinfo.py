@@ -228,4 +228,4 @@ def get_tods(selector, db):
 	try:
 		return np.array(utils.read_lines(selector))
 	except IOError:
-		return db[selector].ids
+		return db[selector]

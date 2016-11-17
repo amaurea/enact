@@ -160,7 +160,8 @@ def read_hwp(entry):
 				status = try_read(files.read_hwp_status, "hwp_status", entry.hwp_status)
 			except errors.DataMissing as e:
 				status = None
-			if status is None or entry.id not in status or status[entry.id] != 1:
+			#if status is None or entry.id not in status or get_dict_wild(status, entry.id) != 1:
+			if status is None or get_dict_wild(status, entry.id) != 1:
 				if config.get("hwp_fallback") == "raw":
 					hwp = try_read(files.read_hwp_raw, "hwp_raw_angles", entry.tod)
 					return dataset.DataSet([
