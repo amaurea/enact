@@ -31,6 +31,7 @@ from enlib import nmat, utils,array_ops, fft, errors, config, gapfill
 # Our main noise model
 config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
 config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
+
 def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
@@ -69,35 +70,13 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	if downweight: white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
 	else: white_scale = [1]*len(bins)
 	if vecs.size == 0: raise errors.ModelError("Could not find any noise modes")
-	E, V, Nu, Nd = [], [vecs], [], []
-	vinds = []
-	for bi, b in enumerate(bins):
-		nmax = 1000
-		b = np.maximum(1,b)
-		# Set up modes to use
-		dm = mask[b[0]:b[1]]
-		d  = ft[:,b[0]:b[1]]
-		# Apply mask unless it would mask all modes
-		if np.any(dm): d = d[:,dm]
-		# Save time by only using a subset of samples for estimating correlations
-		#d = sample_nmax(d,nmax)
-		#amps = vecs.T.dot(d)
-		# Measure amps when we have non-orthogonal vecs
-		rhs  = vecs.T.dot(d)
-		div  = vecs.T.dot(vecs)
-		amps = np.linalg.solve(div,rhs)
-		# Apply weights from apodization. This makes the separation between
-		# what's modelled as uncorrelated and what's modelled as correlated
-		# modes less abrupt. Since both white noise cleaning and E are measured
-		# from amps, this is the only place that needs to care about the apodization.
-		amps *= weights[:,None]**0.5
-		E.append(np.mean(np.abs(amps)**2,1))
-		# Project out modes for every frequency individually
-		dclean = d - vecs.dot(amps)
-		# The rest is assumed to be uncorrelated
-		Nu.append(np.mean(np.abs(dclean)**2,1)/white_scale[bi])
-		Nd.append(np.mean(np.abs(d)**2,1))
-		vinds.append(0)
+	# Sharedvecs supports different sets of vecs per bin. But we only
+	# use a single group here. So every bin refers to the first group.
+	V     = [vecs]
+	vinds = np.zeros(len(bins),dtype=int)
+	Nu, Nd, E = measure_detvecs_bin(ft, bins, vecs, mask, weights)
+	# Apply white noise scaling
+	Nu /= white_scale[:,None]
 	if cut_bins is not None:
 		bins, E, V, Nu, vinds = apply_bin_cuts(bins, cut_bins, E, V, Nu, vinds)
 	if shared:
@@ -107,6 +86,84 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 		V = [V[i] for i in vinds]
 		res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
+
+def measure_detvecs_bin(ft, bins, vecs, mask, weights=None):
+	Nu, Nd, E = [], [], []
+	for bi, b in enumerate(bins):
+		b = np.maximum(1,b)
+		# Set up modes to use
+		dm = mask[b[0]:b[1]]
+		d  = ft[:,b[0]:b[1]]
+		# Apply mask unless it would mask all modes
+		if np.any(dm): d = d[:,dm]
+		# Measure amps when we have non-orthogonal vecs
+		rhs  = vecs.T.dot(d)
+		div  = vecs.T.dot(vecs)
+		amps = np.linalg.solve(div,rhs)
+		if weights is not None:
+			# Apply weights from apodization. This makes the separation between
+			# what's modelled as uncorrelated and what's modelled as correlated
+			# modes less abrupt. Since both white noise cleaning and E are measured
+			# from amps, this is the only place that needs to care about the apodization.
+			amps *= weights[:,None]**0.5
+		E.append(np.mean(np.abs(amps)**2,1))
+		# Project out modes for every frequency individually
+		dclean = d - vecs.dot(amps)
+		# The rest is assumed to be uncorrelated
+		Nu.append(np.mean(np.abs(dclean)**2,1))
+		Nd.append(np.mean(np.abs(d)**2,1))
+	Nu = np.asarray(Nu)
+	Nd = np.asarray(Nd)
+	E  = np.asarray(E)
+	return Nu, Nd, E
+
+def nmat_scaled_autobin(ft, srate):
+	# First detect areas in the spectrum that need high spectral resolution.
+	# The det-mean should have enough S/N that we can detect features without
+	# binning.
+	ps = calc_mean_ps(ft)
+	lfmean = np.log(np.mean(ft,0))
+
+def calc_mean_ps(ft, chunk_size=32):
+	# We do this in bunches to save memory
+	res = np.zeros(ft.shape[-1],ft.real.dtype)
+	for i in range(0, ft.shape[0], chunk_size):
+		res += np.sum(np.abs(ft[i:i+chunk_size])**2,0)
+	res /= ft.shape[0]
+	return res
+
+def build_variable_res_bins(ps, nbin=2000, minsize=1):
+	# Find the relative sample-to-sample change
+	lps     = np.log(ps)
+	changes = np.abs(lps[1:]-lps[:-1])
+	# We want to place bins such that the cumulative
+	# relative change in each bin is relatively uniform
+	cum  = np.cumsum(changes)
+	# Starting point of each bin
+	inds  = np.searchsorted(cum, np.linspace(0,cum[-1],nbin))
+	inds  = np.concatenate([inds,[ps.size]])
+	# Remove too small bins
+	bsize = inds[1:]-inds[:-1]
+	inds  = np.concatenate([inds[:-1][bsize>=minsize],inds[-1:]])
+	bins  = np.zeros([len(inds)-1,2])
+	bins[:,0] = inds[:-1]
+	bins[:,1] = inds[1:]
+	return bins
+
+# Notes:
+#  * triangle interpol basis hwp subtraction seems to introduce some
+#    new spikes, offset from the subtrcted ones to somewhat higher freq.
+#  * hwp spikes continue far further up in frequency than I subtract.
+#  * build_variable_res_bins needs smoothing because of sample variance
+#  * moo2 = ((diffs(np.log(bin(mps_final,8))))**2)
+#    mooc2 = np.cumsum(moo2-np.median(moo2))
+#    inds = np.searchsorted(mooc2,np.linspace(0,mooc2[-1],2000))
+#    leads to a very large number of empty bins, because it wants
+#    to oversample the peaks.
+#  * A better algorithm may be to start with constant-size bins, and
+#    then subdivide them while the internal variance is too big. That
+#    way it's easy to avoid empty bins, and one automatically gets
+#    variable smoothing, with less smoothing for more significant peaks.
 
 config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
 config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
