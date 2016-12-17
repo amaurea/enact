@@ -30,6 +30,7 @@ from enlib import nmat, utils,array_ops, fft, errors, config, gapfill
 
 # Our main noise model
 config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
+config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
 def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
@@ -38,6 +39,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	and cut_bins is a [nbin,{freq_from,freq_2}] array of frequencies
 	to completely cut."""
 	apodization = config.get("nmat_jon_apod", apodization) or None
+	downweight  = config.get("nmat_jon_downweight")
 	nfreq    = ft.shape[1]
 	cut_bins = freq2ind(cut_bins, srate, nfreq)
 	mask     = bins2mask(cut_bins, nfreq)
@@ -64,7 +66,8 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	bin_edges = bin_edges[bin_edges < srate/2 * 0.99]
 	bins = makebins(bin_edges, srate, nfreq, 2*vecs.shape[1], rfun=np.round)
 
-	white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
+	if downweight: white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
+	else: white_scale = [1]*len(bins)
 	if vecs.size == 0: raise errors.ModelError("Could not find any noise modes")
 	E, V, Nu, Nd = [], [vecs], [], []
 	vinds = []

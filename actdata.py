@@ -1,6 +1,6 @@
 import numpy as np, time, os
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch, bench
 from enact import files, cuts, filters
 
 def try_read(method, desc, fnames, *args, **kwargs):
@@ -13,9 +13,10 @@ def try_read(method, desc, fnames, *args, **kwargs):
 		except (IOError,zgetdata.OpenError) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join(fnames))
 
-def get_dict_wild(d, key):
+def get_dict_wild(d, key, default=None):
 	if key in d: return d[key]
 	if '*' in d: return d['*']
+	if default is not None: return default
 	raise KeyError(key)
 def get_dict_default(d, key, default):
 	if key in d: return d[key]
@@ -161,7 +162,7 @@ def read_hwp(entry):
 			except errors.DataMissing as e:
 				status = None
 			#if status is None or entry.id not in status or get_dict_wild(status, entry.id) != 1:
-			if status is None or get_dict_wild(status, entry.id) != 1:
+			if status is None or get_dict_wild(status, entry.id, 0) != 1:
 				if config.get("hwp_fallback") == "raw":
 					hwp = try_read(files.read_hwp_raw, "hwp_raw_angles", entry.tod)
 					return dataset.DataSet([
@@ -596,13 +597,15 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# automatic cut cost us
 	d += dataset.DataField("autocut", [])
 	def addcut(label, dcut, targets="cn"):
-		n0, dn = d.cut.sum(), dcut.sum()
-		if "c" in targets:
-			d.cut = d.cut + dcut
-		if "n" in targets:
-			d.cut_noiseest = d.cut_noiseest + dcut
-		if isinstance(dcut, rangelist.Rangelist): dn *= ndet
-		d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
+		if dcut is None: d.autocut.append([label, 0, 0])
+		else:
+			n0, dn = d.cut.sum(), dcut.sum()
+			if "c" in targets:
+				d.cut = d.cut + dcut
+			if "n" in targets:
+				d.cut_noiseest = d.cut_noiseest + dcut
+			if isinstance(dcut, rangelist.Rangelist): dn *= ndet
+			d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
 	if config.get("cut_stationary") and "boresight" in d:
 		addcut("stationary", cuts.stationary_cut(d.boresight[1]))
 	if config.get("cut_tod_ends") and "srate" in d:
@@ -616,10 +619,12 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	if config.get("cut_moon", moon) and "boresight" in d and "point_offset" in d and "site" in d:
 		addcut("moon",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180))
 	if config.get("cut_obj"):
-		objs = config.get("cut_obj").split(",")
+		objs = utils.split_outside(config.get("cut_obj"),",")
 		for obj in objs:
 			toks = obj.split(":")
 			objname = toks[0]
+			if objname.startswith("["):
+				objname = [float(w)*utils.degree for w in objname[1:-1].split(",")]
 			dist    = 0.1*utils.degree
 			if len(toks) > 1: dist = float(toks[1])*utils.degree
 			# Hack: only cut for noise estimation purposes if dist is negative
@@ -635,6 +640,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		params[:,7]   = 0
 		c = cuts.point_source_cut(d, params)
 		addcut("point_srcs", c)
+
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	# Get rid of completely cut detectors
@@ -644,7 +650,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 
 	def cut_all_if(label, condition):
 		if condition: dcut = rangelist.Rangelist.ones(nsamp)
-		else: dcut = rangelist.Rangelist.empty(nsamp)
+		else: dcut = None
 		addcut(label, dcut)
 	cut_all_if("max_frac",   config.get("cut_max_frac", max_frac) < cut_fraction)
 	if "srate" in d:

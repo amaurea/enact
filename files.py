@@ -343,13 +343,13 @@ def read_hwp_epochs(fname):
 	return res
 
 def read_hwp_cleaned(fname):
-	"""Given a filename to an uncompressed dirfile containing hwp_angle_cleaned
+	"""Given a filename to an uncompressed dirfile containing hwp_angle_fit
 	data as produced by Marius, return the hwp samples in degrees."""
 	# Try Marius format
 	try:
 		with zgetdata.dirfile(fname) as dfile:
-			nsamp = dfile.eof('hwp_angle_cleaned')
-			return dfile.getdata("hwp_angle_cleaned", zgetdata.FLOAT32, num_samples=nsamp)
+			nsamp = dfile.eof('hwp_angle_fit')
+			return dfile.getdata("hwp_angle_fit", zgetdata.FLOAT32, num_samples=nsamp)
 	except zgetdata.BadCodeError:
 		with pyactgetdata.dirfile(fname) as dfile:
 			return dfile.getdata("Hwp_Angle")
