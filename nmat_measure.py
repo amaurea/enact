@@ -76,7 +76,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	vinds = np.zeros(len(bins),dtype=int)
 	Nu, Nd, E = measure_detvecs_bin(ft, bins, vecs, mask, weights)
 	# Apply white noise scaling
-	Nu /= white_scale[:,None]
+	Nu /= np.array(white_scale)[:,None]
 	if cut_bins is not None:
 		bins, E, V, Nu, vinds = apply_bin_cuts(bins, cut_bins, E, V, Nu, vinds)
 	if shared:
