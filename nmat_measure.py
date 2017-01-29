@@ -114,13 +114,6 @@ def measure_detvecs_bin(ft, bins, vecs, mask, weights=None):
 	E  = np.asarray(E)
 	return Nu, Nd, E
 
-def nmat_scaled_autobin(ft, srate):
-	# First detect areas in the spectrum that need high spectral resolution.
-	# The det-mean should have enough S/N that we can detect features without
-	# binning.
-	ps = calc_mean_ps(ft)
-	lfmean = np.log(np.mean(ft,0))
-
 def calc_mean_ps(ft, chunk_size=32):
 	# We do this in bunches to save memory
 	res = np.zeros(ft.shape[-1],ft.real.dtype)
@@ -129,38 +122,24 @@ def calc_mean_ps(ft, chunk_size=32):
 	res /= ft.shape[0]
 	return res
 
-def build_variable_res_bins(ps, nbin=2000, minsize=1):
-	# Find the relative sample-to-sample change
-	lps     = np.log(ps)
-	changes = np.abs(lps[1:]-lps[:-1])
-	# We want to place bins such that the cumulative
-	# relative change in each bin is relatively uniform
-	cum  = np.cumsum(changes)
-	# Starting point of each bin
-	inds  = np.searchsorted(cum, np.linspace(0,cum[-1],nbin))
-	inds  = np.concatenate([inds,[ps.size]])
-	# Remove too small bins
-	bsize = inds[1:]-inds[:-1]
-	inds  = np.concatenate([inds[:-1][bsize>=minsize],inds[-1:]])
-	bins  = np.zeros([len(inds)-1,2])
-	bins[:,0] = inds[:-1]
-	bins[:,1] = inds[1:]
-	return bins
+def detvecs_scaled(ft, srate, dets=None):
+	# First set up our sample points
+	mps  = calc_mean_ps(ft)
+	bins = build_spec_bins(mps, ft.shape[0])
+	freqs = utils.bins2edges(bins)
+	# Build a linear model for the variance
+	# FIXME: Not implemented yet
+	vars  = fit_linear_coeffs(np.abs(ft)**2, freqs)
+	# Scale the ft to compensate
+	ft_scaled = ft.copy()
+	core = nmat.get_core(ft.dtype)
+	ifreqs = nmat.get_ifreqs(freqs, (ft.shape[-1]-1)*2)
+	core.scale_lin(ft_scaled.T, ifreqs, vars.T, -0.5)
+	# Build interior noise model
+	nmat_inner = detvecs_jon(ft_scaled, dets=dets)
+	return nmat.NmatScaled2(vars, freqs, nmat_inner)
 
-# Notes:
-#  * triangle interpol basis hwp subtraction seems to introduce some
-#    new spikes, offset from the subtrcted ones to somewhat higher freq.
-#  * hwp spikes continue far further up in frequency than I subtract.
-#  * build_variable_res_bins needs smoothing because of sample variance
-#  * moo2 = ((diffs(np.log(bin(mps_final,8))))**2)
-#    mooc2 = np.cumsum(moo2-np.median(moo2))
-#    inds = np.searchsorted(mooc2,np.linspace(0,mooc2[-1],2000))
-#    leads to a very large number of empty bins, because it wants
-#    to oversample the peaks.
-#  * A better algorithm may be to start with constant-size bins, and
-#    then subdivide them while the internal variance is too big. That
-#    way it's easy to avoid empty bins, and one automatically gets
-#    variable smoothing, with less smoothing for more significant peaks.
+def build_spec_bins(mps, ndof, lim=5, bsize_density=40):
 
 config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
 config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
@@ -420,3 +399,67 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		res, detslice, sampslice = self.getitem_helper(sel)
 		res.cut = res.cut[sel]
 		return res
+
+def build_spec_bins(mps, ndof, lim=5, bsize_density=40):
+	ndof  = np.full(mps.shape, ndof*1.0)
+	rbins = build_spec_bins(mps, ndof, lim=lim)
+	# Areas with unusual statistics may end up with unrealistically
+	# dense bins. We increase the bin threshold in these regions, and
+	# recompute. This is ugly.
+	bdens = calc_bin_density(rbins, bsize=bsize_density)
+	ndof[:] = ndet/np.maximum(1, bdens/2)
+	pbins = build_spec_bins(mps, ndof, lim=lim)
+	return pbins
+
+def build_spec_bins_helper(mps, ndof, lim=5, level=0):
+	"""Build a noise spectrum binning for spectrum
+	mps[nfreq] where each value is approximately
+	scaled-chisq-distributed with ndof degrees of freedom.
+	Bins are merged until they differ by less than lim sigma."""
+	# The relative uncertainty of a chisq with ndof is
+	# dev/mean = sqrt(2k)/k = sqrt(2/k)
+	mvar  = mps**2*2/ndof
+	# Let's use an iterative merging technique:
+	# Start with full resolution diffs. Find values more
+	# than lim significant. Make these bin boundaries.
+	# For each area between the bin boundaries, downsample
+	# by a factor and repeat the algorithm on these. Can
+	# implement this looping in fortran if need be.
+	diffs = mps[1:]-mps[:-1]
+	dvars = mvar[1:]+mvar[:-1]
+	if level == 0:
+		with h5py.File("tmp.hdf","w") as hfile:
+			hfile["data"] = np.abs(diffs)/dvars**0.5
+	edges = np.where(np.abs(diffs)/dvars**0.5 > lim)[0]
+	edges = np.concatenate([[0],edges+1,[mps.size]])
+	ibins = np.array([edges[:-1],edges[1:]]).T
+	obins = []
+	for b in ibins:
+		bsize = b[1]-b[0]
+		if bsize > 10:
+			# Downsample data in bin and recurse
+			bmps  = downsample(mps[b[0]:b[1]],  2)
+			bndof = downsample(ndof[b[0]:b[1]], 2)*2
+			obins.append(b[0]+2*build_spec_bins(bmps, bndof, lim=lim, level=level+1))
+		else:
+			obins.append([b])
+	obins = np.concatenate(obins)
+	return obins
+
+def calc_bin_density(bins, bsize=40):
+	edges  = np.unique(np.concatenate([np.arange(0,bins[-1,1],bsize),[bins[-1,1]]]))
+	obins  = utils.edges2bins(edges)
+	counts = np.zeros(len(obins))
+	for bi, b in enumerate(bins):
+		i1,i2 = b/bsize
+		counts[b[0]/bsize:b[1]/bsize+1] += 1
+	return utils.bin_expand(obins, counts)
+
+def downsample(a, n):
+	nb  = a.size/n
+	res = np.zeros((a.size+n-1)/n)
+	res[:nb] = np.mean(a[:nb*n].reshape(nb,n),-1)
+	if nb < res.size:
+		res[-1] = np.mean(a[nb*n:])
+	return res
+
