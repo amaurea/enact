@@ -81,8 +81,8 @@ def parse_tagfile_loic(fname):
 			if len(line) < 1 or line[0] == "#": continue
 			toks = line.split()
 			# There are two formats
-			if len(toks) == 6:
-				# 1. [id] [hour] [alt] [az] [pwv] [cut status]
+			if len(toks) >= 6:
+				# 1. [id] [hour] [alt] [az] [pwv] [cut status] [[tag]]
 				# Here a tod is only sel if the status is 2
 				ids.append(toks[0])
 				sel.append(int(toks[5]) == 2)

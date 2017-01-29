@@ -8,15 +8,36 @@ def read_gain(fname):
 	return np.array(data["det_uid"]), np.array(data["cal"])
 
 def read_gain_correction(fname, id=None):
-	"""Reads per-tod overall gain correction from file. Returns
-	{todID: val}."""
+	"""Read lines of the format id[:tag] val. Returns it as a dict
+	of {id: {tag:val,...}}. So a single TOD may be covered by multiple
+	entries in the file, each of which covers a different subset.
+	Lines that start with # will be ignored. If the id argument is
+	passed in, only lines with matching id will be returned."""
 	res = {}
 	for line in utils.lines(fname):
 		if line.startswith("#"): continue
 		if id and not line.startswith(id) and not line.startswith("*"): continue
-		tod_id, value = line.split()
-		res[tod_id] = float(value)
+		# Parse the line
+		pre, value = line.split()
+		pretoks = pre.split(":")
+		tod_id = pretoks[0]
+		tag = pretoks[1] if len(pretoks) > 1 else "*"
+		value = float(value)
+		# And insert it at the right location
+		if tod_id not in res: res[tod_id] = {}
+		res[tod_id][tag] = value
 	return res
+
+#def read_gain_correction(fname, id=None):
+#	"""Reads per-tod overall gain correction from file. Returns
+#	{todID: val}."""
+#	res = {}
+#	for line in utils.lines(fname):
+#		if line.startswith("#"): continue
+#		if id and not line.startswith(id) and not line.startswith("*"): continue
+#		tod_id, value = line.split()
+#		res[tod_id] = float(value)
+#	return res
 
 def read_polangle(fname):
 	"""Reads polarization angles in radians, discarding ones marked bad
@@ -343,13 +364,13 @@ def read_hwp_epochs(fname):
 	return res
 
 def read_hwp_cleaned(fname):
-	"""Given a filename to an uncompressed dirfile containing hwp_angle_cleaned
+	"""Given a filename to an uncompressed dirfile containing hwp_angle_fit
 	data as produced by Marius, return the hwp samples in degrees."""
 	# Try Marius format
 	try:
 		with zgetdata.dirfile(fname) as dfile:
-			nsamp = dfile.eof('hwp_angle_cleaned')
-			return dfile.getdata("hwp_angle_cleaned", zgetdata.FLOAT32, num_samples=nsamp)
+			nsamp = dfile.eof('hwp_angle_fit')
+			return dfile.getdata("hwp_angle_fit", zgetdata.FLOAT32, num_samples=nsamp)
 	except zgetdata.BadCodeError:
 		with pyactgetdata.dirfile(fname) as dfile:
 			return dfile.getdata("Hwp_Angle")
@@ -400,7 +421,7 @@ def read_buddies(fname):
 	will be dets, [ndet][nbuddy,{xi,eta,T,Q,U}]. For the
 	buddy-independent format, dets is None."""
 	res = np.loadtxt(fname, ndmin=2)
-	if res.size == 0: return res.reshape(-1,5)
+	if res.size == 0: return None, res.reshape(-1,5)
 	if res.shape[-1] == 5:
 		# detector-independent format
 		return None, [res]
