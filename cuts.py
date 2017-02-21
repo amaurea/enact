@@ -109,8 +109,8 @@ def tod_end_cut(nsamp, srate, cut_secs=None):
 	ncut = int(config.get("cut_tod_ends_nsec",cut_secs)*srate)
 	return rangelist.Rangelist([[0,ncut],[nsamp-ncut,nsamp]], nsamp)
 
-max_frac   = config.default("cut_mostly_cut_frac",   0.15, "Cut detectors with a higher fraction of cut samples than this.")
-max_nrange = config.default("cut_mostly_cut_nrange", 25, "Cut detectors with a larger number of cut ranges than this.")
+max_frac   = config.default("cut_mostly_cut_frac",   0.20, "Cut detectors with a higher fraction of cut samples than this.")
+max_nrange = config.default("cut_mostly_cut_nrange", 50, "Cut detectors with a larger number of cut ranges than this.")
 def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
 	"""Mark detectors with too many cuts or too large cuts as completely cut."""
 	max_frac   = config.get("cut_mostly_cut_frac",   max_frac)

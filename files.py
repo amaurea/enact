@@ -101,7 +101,8 @@ def read_point_offsets(fname):
 	for line in utils.lines(fname):
 		if line[0] == '#': continue
 		toks = line.split()
-		res[toks[0]] = np.array([float(toks[5]),float(toks[6])])
+		id   = ".".join(toks[0].split(".")[:3])
+		res[id] = np.array([float(toks[5]),float(toks[6])])
 	return res
 
 def read_cut(fname):
@@ -263,8 +264,8 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_on
 		res   = np.empty([rowcol.shape[1],nsamp],dtype=np.int32)
 		if nthread == 1:
 			for i, (r,c) in enumerate(rowcol.T):
-				# The four lowest bits are status flags
-				res[i] = dfile.getdata("tesdatar%02dc%02d" % (r,c)) >> 4
+				# The 7 lowest bits are status flags
+				res[i] = dfile.getdata("tesdatar%02dc%02d" % (r,c))
 		else:
 			# Read in parallel, since there is a significant CPU cost to reading.
 			# However, only do that when we use more than 1 proc, since this
@@ -292,8 +293,8 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_on
 read_tod_single_dfile = None
 def read_tod_single_helper(i, r, c):
 	global read_tod_single_dfile
-	# The four lowest bits are status flags
-	return (i, read_tod_single_dfile.getdata("tesdatar%02dc%02d" % (r,c)) >> 4)
+	# The 7 lowest bits are status flags
+	return (i, read_tod_single_dfile.getdata("tesdatar%02dc%02d" % (r,c)))
 
 def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
 	import moby2

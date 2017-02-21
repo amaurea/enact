@@ -520,7 +520,7 @@ def calibrate_tod_real(data):
 	"""Apply gain to tod, fill gaps and deslope"""
 	require(data, ["tod","gain","cut"])
 	if data.tod.size == 0: raise errors.DataMissing("No tod samples")
-	data.tod = data.tod * data.gain[:,None]
+	data.tod = np.floor((data.tod/2**7)) * (data.gain[:,None]*8)
 	gapfill_helper(data.tod, data.cut)
 	utils.deslope(data.tod, w=8, inplace=True)
 	return data
