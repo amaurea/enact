@@ -142,8 +142,6 @@ def detvecs_scaled(ft, srate, dets=None):
 	nmat_inner = detvecs_jon(ft_scaled, dets=dets)
 	return nmat.NmatScaled2(vars, freqs, nmat_inner)
 
-def build_spec_bins(mps, ndof, lim=5, bsize_density=40):
-
 config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
 config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
 config.default("nmat_uncorr_nmin",    10, "Min modes per bin in uncorrelated noise matrix")
