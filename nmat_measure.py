@@ -1,5 +1,5 @@
-import numpy as np, scipy as sp, enlib.bins, time, enlib.bins, h5py
-from enlib import nmat, utils,array_ops, fft, errors, config, gapfill
+import numpy as np, scipy as sp, time, h5py
+from enlib import nmat, utils, array_ops, fft, errors, config, gapfill
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated
@@ -153,9 +153,9 @@ def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None, v
 	nmin  = config.get("nmat_uncorr_nmin", nmin)
 
 	if type is "exp":
-		bins = enlib.bins.expbin(nfreq, nbin=nbin, nmin=nmin)
+		bins = utils.expbin(nfreq, nbin=nbin, nmin=nmin)
 	elif type is "lin":
-		bins = enlib.bins.linbin(nfreq, nbin=nbin, nmin=nmin)
+		bins = utils.linbin(nfreq, nbin=nbin, nmin=nmin)
 	else: raise ValueError("No such power binning type '%s'" % type)
 	nbin  = bins.shape[0] # expbin may not provide exactly what we want
 

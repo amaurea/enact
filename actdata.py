@@ -1,4 +1,4 @@
-import numpy as np, time, os
+import numpy as np, time, os, multiprocessing
 from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch, bench
 from enact import files, cuts, filters
@@ -516,11 +516,14 @@ def calibrate_tod(data):
 	data = calibrate_tod_fourier(data)
 	return data
 
-def calibrate_tod_real(data):
+def calibrate_tod_real(data, nthread=None):
 	"""Apply gain to tod, fill gaps and deslope"""
 	require(data, ["tod","gain","cut"])
 	if data.tod.size == 0: raise errors.DataMissing("No tod samples")
-	data.tod = np.floor((data.tod/2**7)) * (data.gain[:,None]*8)
+	data.tod  = data.tod.astype(np.int32, copy=False)
+	data.tod /= 128
+	data.tod  = data.tod * (data.gain[:,None]*8)
+	#data.tod = np.floor((data.tod/2**7)) * (data.gain[:,None]*8)
 	gapfill_helper(data.tod, data.cut)
 	utils.deslope(data.tod, w=8, inplace=True)
 	return data

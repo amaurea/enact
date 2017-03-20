@@ -106,7 +106,10 @@ def read(fname, type=None):
 def point_in_polygon_safe(points, polygons):
 	points   = np.asarray(points)
 	polygons = np.array(polygons)
+	# Put the polygon on the same side of the sky as the points
 	polygons[0] = utils.rewind(polygons[0], points[0], 360)
+	# But don't allow sky wraps inside polygons
+	polygons[0] = utils.rewind(polygons[0], polygons[0,0], 360)
 	return utils.point_in_polygon(points.T, polygons.T)
 def grow_polygon(polys, dist):
 	print "FIXME: grow_polygon is wrong"
