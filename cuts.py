@@ -46,6 +46,45 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 	Margin specifies how much to avoid the object by."""
 	cmargin = np.cos(margin)
 	mjd = utils.ctime2mjd(bore[0])
+	obj_pos    = coordinates.interpol_pos("cel","hor",name_or_pos,mjd,site)
+	obj_pos[0] = utils.rewind(obj_pos[0], bore[1])
+	cosel      = np.cos(obj_pos[1])
+	# Only cut if above horizon
+	above_horizon = obj_pos[1]>0
+	null_cut = rangelist.Multirange.empty(det_offs.shape[0], bore.shape[1])
+	if np.all(~above_horizon): return null_cut
+	# Find center of array, and radius
+	arr_center = np.mean(det_offs,0)
+	arr_rad    = np.max(np.sum((det_offs-arr_center)**2,0)**0.5)
+	def calc_mask(det_pos, rad, mask=slice(None)):
+		offs  = (det_pos-obj_pos[:,mask])
+		offs[0] *= cosel[mask]
+		dists2= np.sum(offs**2,0)
+		return dists2 < rad**2
+	# Find samples that could possibly be near object for any detector
+	cand_mask  = calc_mask(arr_center[:,None] + bore[1:], margin+arr_rad)
+	cand_mask &= above_horizon
+	cand_inds  = np.where(cand_mask)[0]
+	if len(cand_inds) == 0: return null_cut
+	# Loop through all detectors and find out if each candidate actually intersects
+	cuts = []
+	for di, off in enumerate(det_offs):
+		det_pos  = bore[1:,cand_inds]+off[:,None]
+		det_mask = calc_mask(det_pos, margin, cand_inds)
+		# Expand mask to full set
+		det_mask_full = np.zeros(bore.shape[1], bool)
+		det_mask_full[cand_inds] = det_mask
+		# And use this to build actual cuts
+		cuts.append(rangelist.Rangelist(det_mask_full))
+	res = rangelist.Multirange(cuts)
+	return res
+
+def avoidance_cut_old(bore, det_offs, site, name_or_pos, margin):
+	"""Cut samples that get too close to the specified object
+	(e.g. "Sun" or "Moon") or celestial position ([ra,dec] in racians).
+	Margin specifies how much to avoid the object by."""
+	cmargin = np.cos(margin)
+	mjd = utils.ctime2mjd(bore[0])
 	obj_pos  = coordinates.interpol_pos("cel","hor",name_or_pos,mjd,site)
 	obj_rect = utils.ang2rect(obj_pos, zenith=False)
 	# Only cut if above horizon
@@ -62,7 +101,8 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 		# Cut samples above horizon that are too close
 		bad  = (cdist > cmargin) & above_horizon
 		cuts.append(rangelist.Rangelist(bad))
-	return rangelist.Multirange(cuts)
+	res = rangelist.Multirange(cuts)
+	return res
 
 def det2hex(dets, ncol=32):
 	res = []

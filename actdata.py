@@ -3,15 +3,34 @@ from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch, bench
 from enact import files, cuts, filters
 
-def try_read(method, desc, fnames, *args, **kwargs):
+def expand_file_params(params, top=True):
+	"""In general we expect parameters to be given as dictionaries
+	with key-value pairs, where one is usually the file name. However,
+	a very common case is for there just to be a file name, so we
+	support just giving the file name and expand it into a dict here.
+	Additionally, for backwards compatibility (and extra flexibility)
+	we also support lists of such parameter dicts. This function
+	always returns a list."""
+	if isinstance(params, basestring):
+		params = {"fname": params}
+	elif isinstance(params, list) or isinstance(params, tuple):
+		params = [expand_file_params(p, False) for p in params]
+	if top and not isinstance(params, list):
+		params = [params]
+	return params
+
+def try_read(method, desc, params, *args, **kwargs):
 	"""Try to read multiple alternative filenames, raising a DataMissing
 	exception only if none of them can be read. Otherwise, return the first
 	matching."""
-	if isinstance(fnames, basestring): fnames = [fnames]
-	for fname in fnames:
-		try: return method(fname, *args, **kwargs)
+	params = expand_file_params(params)
+	for param in params:
+		kwargs2 = kwargs.copy()
+		kwargs2.update(param)
+		del kwargs2["fname"]
+		try: return method(param["fname"], *args, **kwargs2)
 		except (IOError,zgetdata.OpenError) as e: pass
-	raise errors.DataMissing(desc + ": " + ", ".join(fnames))
+	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def get_dict_wild(d, key, default=None):
 	if key in d: return d[key]
@@ -22,16 +41,19 @@ def get_dict_default(d, key, default):
 	if key in d: return d[key]
 	else: return default
 
-def try_read_dict(method, desc, fnames, key, *args, **kwargs):
+def try_read_dict(method, desc, params, key, *args, **kwargs):
 	"""Try to find a value in one of files provided, using the given read
 	method, which must return a dictionary."""
-	if isinstance(fnames, basestring): fnames = [fnames]
-	for fname in fnames:
+	params = expand_file_params(params)
+	for param in params:
+		kwargs2 = kwargs.copy()
+		kwargs2.update(param)
+		del kwargs2["fname"]
 		try:
-			dict = method(fname, *args, **kwargs)
+			dict = method(param["fname"], *args, **kwargs2)
 			return get_dict_wild(dict, key)
 		except (IOError,zgetdata.OpenError, KeyError) as e: pass
-	raise errors.DataMissing(desc + ": " + ", ".join(fnames))
+	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def read_gain(entry):
 	dets, gain_raw = try_read(files.read_gain, "gain", entry.gain)
@@ -77,7 +99,7 @@ def read_polangle(entry):
 		dataset.DataField("entry", entry)])
 
 def read_tconst(entry):
-	dets, data = try_read(files.read_tconst, "tconst", entry.tconst)
+	dets, data = try_read(files.read_tconst, "tconst", entry.tconst, id=entry.id)
 	return dataset.DataSet([
 		dataset.DataField("tau", data, dets=dets, det_index=0),
 		dataset.DataField("entry", entry)])
@@ -253,7 +275,7 @@ def read_tags(entry):
 				raise errors.DataMissing("Tag %s not defined" % (tag))
 			if dets is None: dets = set(tag_defs[tag])
 			else: dets &= set(tag_defs[tag])
-			dets = np.array(list(dets),dtype=int)
+		dets = np.array(list(dets),dtype=int)
 		return dataset.DataSet([
 			dataset.DataField("tag_defs", tag_defs),
 			dataset.DataField("tags", tags, dets=dets)])

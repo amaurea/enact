@@ -1,5 +1,5 @@
 """This module provides low-level access to the actpol TOD metadata files."""
-import ast, numpy as np, enlib.rangelist, re, multiprocessing
+import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py
 from enlib import pyactgetdata, zgetdata, bunch, utils
 
 def read_gain(fname):
@@ -39,14 +39,14 @@ def read_gain_correction(fname, id=None):
 #		res[tod_id] = float(value)
 #	return res
 
-def read_polangle(fname):
+def read_polangle(fname, mode="auto"):
 	"""Reads polarization angles in radians, discarding ones marked bad
 	(the negative ones). The format is returned as id,val."""
 	ids, res = [], []
 	for line in utils.lines(fname):
 		if line.startswith("#"): continue
 		toks = line.split()
-		if len(toks) > 2:
+		if mode == "irca" or len(toks) > 2:
 			id, ang = int(toks[0]), float(toks[3])*np.pi/180
 		else:
 			id, ang = int(toks[0]), float(toks[1])*np.pi/180
@@ -63,7 +63,13 @@ def read_polangle(fname):
 #	res  = res[:2,good]
 #	return res[0].astype(int), res[1]
 
-def read_tconst(fname):
+def read_tconst(fname, id=None, mode="auto"):
+	if mode == "hdf" or mode == "auto" and fname.endswith(".hdf"):
+		return read_tconst_hdf(fname, id=id)
+	else:
+		return read_tconst_ascii(fname, mode=mode)
+
+def read_tconst_ascii(fname, mode="auto"):
 	"""Reads time constants from file in one of two formats:
 	[uid,tau,_] and [uid,row,col,f3db,std]. Values of 0 are taken
 	to indicate a bad value, and are discarded. Returns dets, taus,
@@ -74,7 +80,7 @@ def read_tconst(fname):
 			if line.startswith('#'): continue
 			toks = line.split()
 			if len(toks) == 0: continue
-			if len(toks) == 3:
+			if mode == "tau" or mode == "auto" and (len(toks) == 2 or len(toks) == 3):
 				det, tau = int(toks[0]), float(toks[1])
 				if tau > 0:
 					dets.append(det)
@@ -88,6 +94,17 @@ def read_tconst(fname):
 			else:
 				raise IOError
 	return np.array(dets), np.array(taus)
+
+def read_tconst_hdf(fname, id):
+	with h5py.File(fname, "r") as hfile:
+		ids = hfile["id"].value
+		ind = np.where(ids == id)[0]
+		if len(ind) == 0: raise IOError
+		ind = ind[0]
+		taus = hfile["tau"][ind]
+		dets = np.where(taus>0)[0]
+		taus = taus[dets]
+		return dets, taus
 
 def read_point_template(fname):
 	"""Reads the per-detector pointing offsets, returning it in the form id,[[dx,dy]]."""
@@ -364,17 +381,20 @@ def read_hwp_epochs(fname):
 			res[ar].append([float(t1),float(t2),name])
 	return res
 
-def read_hwp_cleaned(fname):
+def read_hwp_cleaned(fname, mode="auto"):
 	"""Given a filename to an uncompressed dirfile containing hwp_angle_fit
 	data as produced by Marius, return the hwp samples in degrees."""
 	# Try Marius format
-	try:
-		with zgetdata.dirfile(fname) as dfile:
-			nsamp = dfile.eof('hwp_angle_fit')
-			return dfile.getdata("hwp_angle_fit", zgetdata.FLOAT32, num_samples=nsamp)
-	except zgetdata.BadCodeError:
-		with pyactgetdata.dirfile(fname) as dfile:
-			return dfile.getdata("Hwp_Angle")
+	if mode == "marius" or mode == "auto":
+		try:
+			with zgetdata.dirfile(fname) as dfile:
+				nsamp = dfile.eof('hwp_angle_fit')
+				return dfile.getdata("hwp_angle_fit", zgetdata.FLOAT32, num_samples=nsamp)
+		except zgetdata.BadCodeError:
+			if mode == "marius": raise errors.DataMissing("File %s is not in marius format" % fname)
+	# Try the other format
+	with pyactgetdata.dirfile(fname) as dfile:
+		return dfile.getdata("Hwp_Angle")
 
 def read_spikes(fname):
 	"""Given a filename, reads the start, end and amplitude of the spikes described
@@ -415,7 +435,7 @@ def read_dark_dets(fname):
 	a 1d numpy array of ints."""
 	return np.loadtxt(fname).astype(int).reshape(-1)
 
-def read_buddies(fname):
+def read_buddies(fname, mode="auto"):
 	"""Read a beam decomposition of the near-sidelobe "buddies".
 	Each line should contain xi eta T Q U for one buddy, or
 	det xi eta T Q U for the detector-dependent format. The result
@@ -423,7 +443,7 @@ def read_buddies(fname):
 	buddy-independent format, dets is None."""
 	res = np.loadtxt(fname, ndmin=2)
 	if res.size == 0: return None, res.reshape(-1,5)
-	if res.shape[-1] == 5:
+	if mode == "uniform" or mode == "auto" and res.shape[-1] == 5:
 		# detector-independent format
 		return None, [res]
 	else:
@@ -455,7 +475,10 @@ def read_pylike_format(fname):
 	res = {}
 	for line in utils.lines(fname):
 		if line.isspace(): continue
-		a = ast.parse(line.replace("nan", "'nan'")) # Does not handle nan
+		try:
+			a = ast.parse(line.replace("nan", "'nan'")) # Does not handle nan
+		except TypeError as e:
+			raise IOError("Unparsable file %s (%s)" % (str(fname), e.message))
 		id = a.body[0].targets[0].id
 		res[id] = ast.literal_eval(a.body[0].value)
 		# reinsert all the nans. This assumes no nested lists

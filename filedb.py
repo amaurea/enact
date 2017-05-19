@@ -1,5 +1,5 @@
 import numpy as np, re, shlex, pipes, os
-from enlib import filedb, config, bunch
+from enlib import filedb, config, bunch, execdb
 from enlib.utils import ctime2date
 from enact import todinfo
 
@@ -27,20 +27,38 @@ extractors = {
 # will be none if it fails.
 config.default("root", ".", "Path to directory where the different metadata sets are")
 config.default("dataset", ".", "Path to data set directory relative to data_root")
+config.default("filevars", "filevars.py", "File with common definitions for filedbs")
 config.default("filedb", "filedb.txt", "File describing the location of the TOD and their metadata. Relative to dataset path.")
 config.default("todinfo", "todinfo.hdf","File describing location of the TOD id lists. Relative to dataset path.")
 config.default("file_override", "none", "Comma-separated list of field:file, or none to disable")
 config.init()
 
-class ACTFiles(filedb.FormatDB):
-	def __init__(self, file=None, data=None, override=None):
-		if file is None and data is None: file = cjoin(["root","dataset","filedb"])
-		override = config.get("file_override", override)
-		filedb.FormatDB.__init__(self, file=file, data=data, funcs=extractors, override=override)
+#class ACTFiles(filedb.FormatDB):
+#	def __init__(self, file=None, data=None, override=None):
+#		if file is None and data is None: file = cjoin(["root","dataset","filedb"])
+#		override = config.get("file_override", override)
+#		filedb.FormatDB.__init__(self, file=file, data=data, funcs=extractors, override=override)
+
+def setup_filedb():
+	"""Create a default filedb based on the root, dataset and filedb config
+	variables. The result will be either a FormatDB or ExecDB based on the
+	format of the fildb file."""
+	override= config.get("file_override")
+	if override is "none": override = None
+	es = []
+	try:
+		return execdb.ExecDB(cjoin(["root","dataset","filedb"]), cjoin(["root","filevars"]), override=override)
+	except Exception as e: es.append(e)
+	try:
+		return filedb.FormatDB(file=cjoin(["root","dataset","filedb"]),
+				funcs=extractors, override=override)
+	except Exception as e:
+		es.append(e)
+		raise IOError("Could not initialize filedb: " + "; ".join([e.message for e in es]))
 
 def cjoin(names): return os.path.join(*[config.get(n) for n in names])
 
 def init():
 	global scans, data
 	scans = todinfo.read(cjoin(["root","dataset","todinfo"]))
-	data  = ACTFiles()
+	data  = setup_filedb()
