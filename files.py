@@ -8,7 +8,7 @@ def read_gain(fname):
 	return np.array(data["det_uid"]), np.array(data["cal"])
 
 def read_gain_correction(fname, id=None):
-	"""Read lines of the format id[:tag] val. Returns it as a dict
+	"""Read lines of the format id[:tag] val or id tag val. Returns it as a dict
 	of {id: {tag:val,...}}. So a single TOD may be covered by multiple
 	entries in the file, each of which covers a different subset.
 	Lines that start with # will be ignored. If the id argument is
@@ -18,10 +18,13 @@ def read_gain_correction(fname, id=None):
 		if line.startswith("#"): continue
 		if id and not line.startswith(id) and not line.startswith("*"): continue
 		# Parse the line
-		pre, value = line.split()
-		pretoks = pre.split(":")
-		tod_id = pretoks[0]
-		tag = pretoks[1] if len(pretoks) > 1 else "*"
+		line = line.replace(":"," ")
+		toks = line.split()
+		if len(toks) == 2:
+			tod_id, value = toks
+			tag = "*"
+		else:
+			tod_id, tag, value = toks
 		value = float(value)
 		# And insert it at the right location
 		if tod_id not in res: res[tod_id] = {}

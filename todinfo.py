@@ -84,6 +84,8 @@ def parse_tagfile_loic(fname):
 			if len(toks) >= 6:
 				# 1. [id] [hour] [alt] [az] [pwv] [cut status] [[tag]]
 				# Here a tod is only sel if the status is 2
+				# Hack: work around corrupt lines
+				if len(toks[0].split(".")) != 3: continue
 				ids.append(toks[0])
 				sel.append(int(toks[5]) == 2)
 			elif len(toks) == 1:
@@ -92,6 +94,8 @@ def parse_tagfile_loic(fname):
 				# So /all will be needed to access these.
 				id = toks[0].split("/")[-1]
 				if id.endswith(".zip"): id = id[:-4]
+				# Hack: work around corrupt lines
+				if len(id.split(".")) != 3: continue
 				ids.append(id)
 				sel.append(False)
 	ids = np.asarray(ids + ["foo"])[:-1]

@@ -104,6 +104,27 @@ def read_tconst(entry):
 		dataset.DataField("tau", data, dets=dets, det_index=0),
 		dataset.DataField("entry", entry)])
 
+# There are 3 types of cuts:
+# 1. Samples that should be cut when making maps, but not when estimating noise.
+#    These are e.g. samples that hit moon sidelobes, or which have suspicious
+#    statistical properties.
+# 2. Samples that should be cut when estimating noise, but not when making maps.
+#    For example samples that hit planets when mapping planets.
+# 3. Samples that should be cut both when estimating noise and when making maps.
+#    These are tyipcally glitches, planets, and other samples with huge values.
+#
+# All these can be handled using only two categories:
+# 1. cut
+# 2. cut_noise
+# If cut_noise defaults to being equato to cut, then specifying only cut
+# would recover the old behavior. cut can default to empty. Automatic
+# cuts would add to cut.
+#
+# Each of these categories can be the union of several different cut sets,
+# which can be in either the old or new format. Could have a single cut
+# entry in the filedb, but that would make it hard to override only one
+# of them
+
 def read_cut(entry):
 	dets, data, offset = try_read(files.read_cut, "cut", entry.cut)
 	samples = [offset, offset + data.shape[-1]]
