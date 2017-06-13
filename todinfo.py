@@ -146,7 +146,8 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 	acenter = np.mean(d.point_offset,0) 
 	arad    = np.mean((d.point_offset-acenter)**2,0)**0.5
 
-	t, baz, bel = np.mean(d.boresight,1)
+	t, baz, bel = 0.5*(np.min(d.boresight,1)+np.max(d.boresight,1))
+	#t, baz, bel = np.mean(d.boresight,1)
 	az  = baz + acenter[0]
 	el  = bel + acenter[1]
 	dur, waz, wel = np.max(d.boresight,1)-np.min(d.boresight,1)
@@ -173,7 +174,7 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 		bounds[i,bounds[i]>bmid[i]] += arad[i]
 
 	res = bunch.Bunch(id=entry.id, nsamp=d.nsamp, t=t, mjd=mjd, jon=jon,
-			hour=hour, day=day, night=night,
+			hour=hour, day=day, night=night, dur=dur,
 			az =az /utils.degree,  el =el/utils.degree,
 			baz=baz/utils.degree,  bel=bel/utils.degree,
 			waz=waz/utils.degree,  wel=wel/utils.degree,
