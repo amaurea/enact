@@ -152,8 +152,10 @@ def try_read_cut(params, desc, id):
 			except (IOError,zgetdata.OpenError) as e:
 				messages.append(e.message)
 		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
+	# Convenience transformations, to make things a bit more readable in the parameter files
 	if isinstance(params, basestring):
-		if params.endswith(".hdf"): params = {"type":"hdf","fname":params}
+		toks = params.split(":")
+		if toks[0].endswith(".hdf") or toks[0].endswith(".pdf"): params = {"type":"hdf","fname":toks[0],"flags":toks[1]}
 		else: params = {"type":"old","fname":params}
 	if   params["type"] == "old": return files.read_cut(params["fname"])
 	elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
@@ -161,21 +163,18 @@ def try_read_cut(params, desc, id):
 		return merge_cuts([try_read_cut(param, desc) for param in params["subs"]])
 	else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
 
-def read_cut(entry):
-	dets, data, offset = try_read_cut(entry.cut, "cut", entry.id)
-	samples = [offset, offset + data.shape[-1]]
-	return dataset.DataSet([
-		dataset.DataField("cut", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
-		dataset.DataField("entry", entry)])
-
-def read_cut_noiseest(entry):
-	if "cut_noiseest" not in entry or not entry.cut_noiseest:
-		entry.cut_noiseest = entry.cut
-	dets, data, offset = try_read_cut(entry.cut_noiseest, "cut_noiseest", entry.id)
-	samples = [offset, offset + data.shape[-1]]
-	return dataset.DataSet([
-		dataset.DataField("cut_noiseest", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
-		dataset.DataField("entry", entry)])
+def read_cut(entry, names=["cut_map","cut_basic","cut_noiseest"], default="cut"):
+	fields = [dataset.DataField("entry",entry)]
+	for name in names:
+		if name not in entry or entry[name] is None:
+			if default not in entry or entry[default] is None:
+				raise errors.DataMissing("Trying to read cut, but no cut data present!")
+			param = entry[default]
+		else: param = entry[name]
+		dets, data, offset = try_read_cut(param, name, entry.id)
+		samples = [offset, offset + data.shape[-1]]
+		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges))
+	return dataset.DataSet(fields)
 
 def read_point_offsets(entry, no_correction=False):
 	dets, template = try_read(files.read_point_template, "point_template", entry.point_template)
@@ -359,7 +358,6 @@ readers = {
 		"polangle": read_polangle,
 		"tconst": read_tconst,
 		"cut": read_cut,
-		"cut_noiseest": read_cut_noiseest,
 		"point_offsets": read_point_offsets,
 		"pointsrcs": read_pointsrcs,
 		"layout": read_layout,
@@ -378,7 +376,7 @@ readers = {
 		"tags": read_tags,
 	}
 
-default_fields = ["layout","tags","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
+default_fields = ["layout","tags","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
 def read(entry, fields=None, exclude=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
@@ -569,15 +567,10 @@ def calibrate_polangle(data):
 
 config.default("pad_cuts", 0, "Number of samples by which to widen each cut range by")
 def calibrate_cut(data, n=None):
-	require(data, ["cut"])
 	n = config.get("pad_cuts", n)
-	data.cut = data.cut.widen(n)
-	return data
-
-def calibrate_cut_noiseest(data, n=None):
-	require(data, ["cut_noiseest"])
-	n = config.get("pad_cuts", n)
-	data.cut_noiseest = data.cut_noiseest.widen(n)
+	for name in ["cut","cut_basic","cut_noiseest"]:
+		if name in data:
+			data[name] = data[name].widen(n)
 	return data
 
 def calibrate_beam(data):
@@ -596,14 +589,15 @@ def calibrate_tod(data):
 	return data
 
 def calibrate_tod_real(data, nthread=None):
-	"""Apply gain to tod, fill gaps and deslope"""
-	require(data, ["tod","gain","cut"])
+	"""Apply gain to tod, fill gaps and deslope. We only gapfill
+	data that's bad enough that it should be excluded when estimating
+	the noise model."""
+	require(data, ["tod","gain","cut_basic"])
 	if data.tod.size == 0: raise errors.DataMissing("No tod samples")
 	data.tod  = data.tod.astype(np.int32, copy=False)
 	data.tod /= 128
 	data.tod  = data.tod * (data.gain[:,None]*8)
-	#data.tod = np.floor((data.tod/2**7)) * (data.gain[:,None]*8)
-	gapfill_helper(data.tod, data.cut)
+	gapfill_helper(data.tod, data.cut_basic)
 	utils.deslope(data.tod, w=8, inplace=True)
 	return data
 
@@ -784,7 +778,6 @@ calibrators = {
 	"beam":         calibrate_beam,
 	"polangle":     calibrate_polangle,
 	"cut":          calibrate_cut,
-	"cut_noiseest": calibrate_cut_noiseest,
 	"autocut":      autocut,
 	"fftlen":       crop_fftlen,
 	"tod":          calibrate_tod,
@@ -798,7 +791,7 @@ calibrators = {
 	"buddies":      calibrate_buddies,
 }
 
-default_calib = ["boresight", "gain", "polangle", "hwp", "point_offset", "beam", "cut", "cut_noiseest", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
+default_calib = ["boresight", "gain", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
