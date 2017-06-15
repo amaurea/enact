@@ -125,8 +125,44 @@ def read_tconst(entry):
 # entry in the filedb, but that would make it hard to override only one
 # of them
 
+def merge_cuts(cutinfos):
+	# each cutinfo is dets, cuts, offset. Find intersection of detectors
+	detlists = [ci[0] for ci in cutinfos]
+	dets     = utils.common_vals(detlists)
+	detinds  = utils.common_inds(detlists)
+	# Find the max offset and how much we must cut off the start of each member
+	offsets  = np.array([ci[2] for ci in cutinfos])
+	offset   = np.max(offsets)
+	offrel   = offset - offsets
+	# slice each cut
+	cuts = [ci[1][d,o:] for ci,d,o in zip(cutinfos, detinds, offrel)]
+	# And produce the cut sum
+	cut  = cuts[0]
+	for c in cuts[1:]: cut += c
+	return dets, cut, offset
+
+def try_read_cut(params, desc, id):
+	"""We support a more complicated format for cuts."""
+	# If a list is given, try them one by one and use the first usable one
+	if isinstance(params, list):
+		messages = []
+		for param in params:
+			try:
+				return try_read_cut(param, desc)
+			except (IOError,zgetdata.OpenError) as e:
+				messages.append(e.message)
+		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
+	if isinstance(params, basestring):
+		if params.endswith(".hdf"): params = {"type":"hdf","fname":params}
+		else: params = {"type":"old","fname":params}
+	if   params["type"] == "old": return files.read_cut(params["fname"])
+	elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
+	elif params["type"] == "union":
+		return merge_cuts([try_read_cut(param, desc) for param in params["subs"]])
+	else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
+
 def read_cut(entry):
-	dets, data, offset = try_read(files.read_cut, "cut", entry.cut)
+	dets, data, offset = try_read_cut(entry.cut, "cut", entry.id)
 	samples = [offset, offset + data.shape[-1]]
 	return dataset.DataSet([
 		dataset.DataField("cut", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
@@ -135,7 +171,7 @@ def read_cut(entry):
 def read_cut_noiseest(entry):
 	if "cut_noiseest" not in entry or not entry.cut_noiseest:
 		entry.cut_noiseest = entry.cut
-	dets, data, offset = try_read(files.read_cut, "cut_noiseest", entry.cut_noiseest)
+	dets, data, offset = try_read_cut(entry.cut_noiseest, "cut_noiseest", entry.id)
 	samples = [offset, offset + data.shape[-1]]
 	return dataset.DataSet([
 		dataset.DataField("cut_noiseest", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),

@@ -1,6 +1,6 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py
-from enlib import pyactgetdata, zgetdata, bunch, utils
+from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -158,6 +158,15 @@ def read_cut(fname):
 			ocuts.append(cut)
 	ocuts = enlib.rangelist.Multirange(ocuts)
 	return odets, ocuts, offset
+
+def read_cut_hdf(fname, id, flags):
+	"""Reads cuts in the new hdf format. This format has multiple tods per
+	file, so the tod id must be specified. It also lets one specify various
+	flags to construct the actual cuts from, such as planet cuts, glitch cuts, etc."""
+	frange = flagrange.read_flagrange(fname, id)
+	frange = frange.select(flags)
+	cuts   = frange.to_rangelist()
+	return frange.dets, cuts, frange.sample_offset
 
 #def read_cut(fname):
 #	"""Reads the act cut format, returning ids,cuts,offset, where cuts is a Multirange
