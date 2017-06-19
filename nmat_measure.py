@@ -125,22 +125,27 @@ def calc_mean_ps(ft, chunk_size=32):
 	res /= ft.shape[0]
 	return res
 
-def detvecs_scaled(ft, srate, dets=None):
+config.default("nmat_scaled_bsize",  100, "Smooth bin size unit for scaled nmat")
+config.default("nmat_scaled_spike",  8, "S/N required to allocate spike bin in scaled nmat")
+config.default("nmat_scaled_smooth", 1.05, "Max average power change from bin to bin in smooth part of scaled nmat")
+def detvecs_scaled(ft, srate, dets=None, bsize=None, lim=None, lim2=None):
+	bsize = config.get("nmat_scaled_bsize", bsize)
+	lim   = config.get("nmat_scaled_spike", lim)
+	lim2  = config.get("nmat_scaled_smooth", lim2)
 	# First set up our sample points
-	mps  = calc_mean_ps(ft)
-	bins = build_spec_bins(mps, ft.shape[0])
-	freqs = utils.bins2edges(bins)
-	# Build a linear model for the variance
-	# FIXME: Not implemented yet
-	vars  = fit_linear_coeffs(np.abs(ft)**2, freqs)
-	# Scale the ft to compensate
-	ft_scaled = ft.copy()
-	core = nmat.get_core(ft.dtype)
-	ifreqs = nmat.get_ifreqs(freqs, (ft.shape[-1]-1)*2)
-	core.scale_lin(ft_scaled.T, ifreqs, vars.T, -0.5)
+	mps   = calc_mean_ps(ft)
+	bins  = build_spec_bins(mps, bsize=bsize, lim=lim, lim2=lim2)
+	# Measure mean power per bin
+	brms  = np.zeros(ft.shape, mps.dtype)
+	for bi, b in enumerate(bins):
+		brms[:,bi] = np.abs(ft[:,b[0]:b[1]])
+		ft[:,b[0]:b[1]] /= brms[:,bi]
 	# Build interior noise model
-	nmat_inner = detvecs_jon(ft_scaled, dets=dets)
-	return nmat.NmatScaled2(vars, freqs, nmat_inner)
+	nmat_inner = detvecs_jon(ft, dets=dets)
+	# Undo scaling of ft in case caller still needs it
+	for bi, b in enumerate(bins):
+		ft[:,b[0]:b[1]] *= brms[:,bi]
+	return nmat.NmatScaled(brms, freqs, nmat_inner)
 
 config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
 config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
@@ -388,6 +393,8 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 				noise_model = detvecs_simple(ft, srate)
 			elif self.model == "white":
 				noise_model = nmat.NoiseMatrix()
+			elif self.model == "scaled":
+				noise_model = detvecs_scaled(ft, srate)
 			else:
 				raise ValueError("Unknown noise model '%s'" % self.model)
 		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
@@ -401,60 +408,51 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		res.cut = res.cut[sel]
 		return res
 
-def build_spec_bins(mps, ndof, lim=5, bsize_density=40):
-	ndof  = np.full(mps.shape, ndof*1.0)
-	rbins = build_spec_bins(mps, ndof, lim=lim)
-	# Areas with unusual statistics may end up with unrealistically
-	# dense bins. We increase the bin threshold in these regions, and
-	# recompute. This is ugly.
-	bdens = calc_bin_density(rbins, bsize=bsize_density)
-	ndof[:] = ndet/np.maximum(1, bdens/2)
-	pbins = build_spec_bins(mps, ndof, lim=lim)
-	return pbins
-
-def build_spec_bins_helper(mps, ndof, lim=5, level=0):
-	"""Build a noise spectrum binning for spectrum
-	mps[nfreq] where each value is approximately
-	scaled-chisq-distributed with ndof degrees of freedom.
-	Bins are merged until they differ by less than lim sigma."""
-	# The relative uncertainty of a chisq with ndof is
-	# dev/mean = sqrt(2k)/k = sqrt(2/k)
-	mvar  = mps**2*2/ndof
-	# Let's use an iterative merging technique:
-	# Start with full resolution diffs. Find values more
-	# than lim significant. Make these bin boundaries.
-	# For each area between the bin boundaries, downsample
-	# by a factor and repeat the algorithm on these. Can
-	# implement this looping in fortran if need be.
-	diffs = mps[1:]-mps[:-1]
-	dvars = mvar[1:]+mvar[:-1]
-	if level == 0:
-		with h5py.File("tmp.hdf","w") as hfile:
-			hfile["data"] = np.abs(diffs)/dvars**0.5
-	edges = np.where(np.abs(diffs)/dvars**0.5 > lim)[0]
-	edges = np.concatenate([[0],edges+1,[mps.size]])
-	ibins = np.array([edges[:-1],edges[1:]]).T
-	obins = []
-	for b in ibins:
-		bsize = b[1]-b[0]
-		if bsize > 10:
-			# Downsample data in bin and recurse
-			bmps  = downsample(mps[b[0]:b[1]],  2)
-			bndof = downsample(ndof[b[0]:b[1]], 2)*2
-			obins.append(b[0]+2*build_spec_bins(bmps, bndof, lim=lim, level=level+1))
-		else:
-			obins.append([b])
-	obins = np.concatenate(obins)
+# Ok, here's a simpler approach. Measure the base power in equi-spaced
+# bins. Find points that differ too much from median. This actually works
+# pretty well. It results in a managable number of bins, and captures both
+# sharp spikes and the general low-freq rise
+def build_spec_bins(mps, bsize=100, lim=8, lim2=1.05):
+	"""Build spectrum bins appropriate for the uncorrelated part of
+	the noise model, based on a mean power spectrum mps[nfreq].
+	This is done in two steps. First bins are built based on the
+	smooth part of the sectrum. This part has a minimum bin size of
+	bsize, and requires the mean power to change by at least lim2 before
+	a new bin is allocated. Then smooth part is subtracted and another
+	set of bins is made to capture spikes with significance above lim.
+	The total set of bins is a combination of these."""
+	nsamp  = mps.size
+	nbin   = nsamp/bsize
+	bdata  = mps[:nbin*bsize].reshape(nbin,bsize)
+	# Measure our median power per bin. this will be used to
+	# construct the smooth background part of our binning later
+	medval = np.median(bdata,1)
+	# Then subtract this smooth part to characterize the spikes.
+	# The 0.669 factor translates from median to mean-vased variance.
+	resid  = bdata - medval[:,None]
+	medstd = np.median(resid**2,1)**0.5/0.669
+	resid /= medstd[:,None]
+	# Do the actual spike detection
+	inspike = resid.reshape(-1) > lim
+	edges_spike = inspike[1:] != inspike[:-1]
+	# Expand to any partial missing last bin, so we are full length
+	edges_spike = np.concatenate([[True],edges_spike,np.zeros(nsamp-nbin*bsize,bool)])
+	# Then find what bins our background power spectrum wants. We again
+	# look for significan changes in power.
+	edges_smooth = np.zeros(nsamp,bool)
+	edges_smooth[0] = True
+	i = 0
+	while i < nbin-1:
+		for j in range(i+1,nbin):
+			if np.abs(np.log(medval[j]/medval[i])) > np.log(lim2):
+				edges_smooth[j*bsize-1] = True
+				break
+		i = j
+	edges = edges_spike | edges_smooth
+	inds  = np.where(edges)[0]
+	inds  = np.concatenate([[0],inds,[nsamp]])
+	obins = np.array([inds[:-1],inds[1:]]).T
 	return obins
-
-def calc_bin_density(bins, bsize=40):
-	edges  = np.unique(np.concatenate([np.arange(0,bins[-1,1],bsize),[bins[-1,1]]]))
-	obins  = utils.edges2bins(edges)
-	counts = np.zeros(len(obins))
-	for bi, b in enumerate(bins):
-		i1,i2 = b/bsize
-		counts[b[0]/bsize:b[1]/bsize+1] += 1
-	return utils.bin_expand(obins, counts)
 
 def downsample(a, n):
 	nb  = a.size/n
