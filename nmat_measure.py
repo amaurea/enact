@@ -32,7 +32,7 @@ from enlib import nmat, utils, array_ops, fft, errors, config, gapfill
 config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
 config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
 
-def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None):
+def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None, cut_unit="freq"):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
 	srate is the sampling rate, dets is the list of detectors, shared specifies
@@ -42,7 +42,8 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	apodization = config.get("nmat_jon_apod", apodization) or None
 	downweight  = config.get("nmat_jon_downweight")
 	nfreq    = ft.shape[1]
-	cut_bins = freq2ind(cut_bins, srate, nfreq)
+	if cut_unit == "freq":
+		cut_bins = freq2ind(cut_bins, srate, nfreq)
 	mask     = bins2mask(cut_bins, nfreq)
 	# Construct our mode bins. Interestingly, we skip
 	# the f < 0.25 Hz area.
@@ -125,27 +126,43 @@ def calc_mean_ps(ft, chunk_size=32):
 	res /= ft.shape[0]
 	return res
 
+# Noise model that uses a different bin resolution for the variance than
+# the correlation. Works, but the simple wrapping around Jon's noise model
+# here is problematic. Empirically I see worse performance in the low-freq
+# region I hoped to improve the most. This manifests as a more jagged chisq/freq
+# curve in this region. This method does improve the spikes, but those seem to
+# contribute very little power, and can be handled using the spike cut in jon's
+# model.
 config.default("nmat_scaled_bsize",  100, "Smooth bin size unit for scaled nmat")
 config.default("nmat_scaled_spike",  8, "S/N required to allocate spike bin in scaled nmat")
 config.default("nmat_scaled_smooth", 1.05, "Max average power change from bin to bin in smooth part of scaled nmat")
-def detvecs_scaled(ft, srate, dets=None, bsize=None, lim=None, lim2=None):
+config.default("nmat_scaled_spikecut", False, "Whether to fully cut spikes in scaled nmat. Default is False, i.e. to just downweight them")
+def detvecs_scaled(ft, srate, dets=None, bsize=None, lim=None, lim2=None, spikecut=None):
 	bsize = config.get("nmat_scaled_bsize", bsize)
 	lim   = config.get("nmat_scaled_spike", lim)
 	lim2  = config.get("nmat_scaled_smooth", lim2)
+	spikecut = config.get("nmat_scaled_spikecut", spikecut)
 	# First set up our sample points
 	mps   = calc_mean_ps(ft)
-	bins  = build_spec_bins(mps, bsize=bsize, lim=lim, lim2=lim2)
+	bins, bins_spike = build_spec_bins(mps, bsize=bsize, lim=lim, lim2=lim2)
 	# Measure mean power per bin
-	brms  = np.zeros(ft.shape, mps.dtype)
+	brms  = np.zeros(ft.shape[:-1]+(len(bins),), mps.dtype)
 	for bi, b in enumerate(bins):
-		brms[:,bi] = np.abs(ft[:,b[0]:b[1]])
-		ft[:,b[0]:b[1]] /= brms[:,bi]
+		brms[:,bi] = np.mean(np.abs(ft[:,b[0]:b[1]])**2)**0.5
+		ft[:,b[0]:b[1]] /= brms[:,bi,None]
 	# Build interior noise model
-	nmat_inner = detvecs_jon(ft, dets=dets)
+	if not spikecut: sbins_spike = None
+	nmat_inner = detvecs_jon(ft, srate=srate, dets=dets, cut_bins=bins_spike, cut_unit="inds")
 	# Undo scaling of ft in case caller still needs it
 	for bi, b in enumerate(bins):
-		ft[:,b[0]:b[1]] *= brms[:,bi]
-	return nmat.NmatScaled(brms, freqs, nmat_inner)
+		ft[:,b[0]:b[1]] *= brms[:,bi,None]
+	return nmat.NmatScaled(brms, bins, nmat_inner)
+
+def detvecs_jon_autospike(ft, srate, dets=None):
+	# First set up our sample points
+	mps   = calc_mean_ps(ft)
+	bins, bins_spike = build_spec_bins(mps)
+	return detvecs_jon(ft, srate=srate, dets=dets, cut_bins=bins_spike, cut_unit="inds")
 
 config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
 config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
@@ -448,11 +465,16 @@ def build_spec_bins(mps, bsize=100, lim=8, lim2=1.05):
 				edges_smooth[j*bsize-1] = True
 				break
 		i = j
-	edges = edges_spike | edges_smooth
-	inds  = np.where(edges)[0]
-	inds  = np.concatenate([[0],inds,[nsamp]])
-	obins = np.array([inds[:-1],inds[1:]]).T
-	return obins
+	def edges2bins(edges):
+		inds = np.concatenate([np.where(edges)[0],[nsamp]])
+		return np.array([inds[:-1],inds[1:]]).T
+	bins_tot    = edges2bins(edges_spike | edges_smooth)
+	# Also output spike bins, which only cover spike areas
+	inspike[[0,-1]]=False
+	bins_spike = np.array([
+		np.where(inspike[1:]>inspike[:-1])[0],
+		np.where(inspike[1:]<inspike[:-1])[0]]).T+1
+	return bins_tot, bins_spike
 
 def downsample(a, n):
 	nb  = a.size/n

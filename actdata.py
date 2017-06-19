@@ -163,7 +163,7 @@ def try_read_cut(params, desc, id):
 		return merge_cuts([try_read_cut(param, desc) for param in params["subs"]])
 	else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
 
-def read_cut(entry, names=["cut_map","cut_basic","cut_noiseest"], default="cut"):
+def read_cut(entry, names=["cut","cut_basic","cut_noiseest"], default="cut"):
 	fields = [dataset.DataField("entry",entry)]
 	for name in names:
 		if name not in entry or entry[name] is None:
