@@ -104,21 +104,77 @@ def read_tconst(entry):
 		dataset.DataField("tau", data, dets=dets, det_index=0),
 		dataset.DataField("entry", entry)])
 
-def read_cut(entry):
-	dets, data, offset = try_read(files.read_cut, "cut", entry.cut)
-	samples = [offset, offset + data.shape[-1]]
-	return dataset.DataSet([
-		dataset.DataField("cut", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
-		dataset.DataField("entry", entry)])
+# There are 3 types of cuts:
+# 1. Samples that should be cut when making maps, but not when estimating noise.
+#    These are e.g. samples that hit moon sidelobes, or which have suspicious
+#    statistical properties.
+# 2. Samples that should be cut when estimating noise, but not when making maps.
+#    For example samples that hit planets when mapping planets.
+# 3. Samples that should be cut both when estimating noise and when making maps.
+#    These are tyipcally glitches, planets, and other samples with huge values.
+#
+# All these can be handled using only two categories:
+# 1. cut
+# 2. cut_noise
+# If cut_noise defaults to being equato to cut, then specifying only cut
+# would recover the old behavior. cut can default to empty. Automatic
+# cuts would add to cut.
+#
+# Each of these categories can be the union of several different cut sets,
+# which can be in either the old or new format. Could have a single cut
+# entry in the filedb, but that would make it hard to override only one
+# of them
 
-def read_cut_noiseest(entry):
-	if "cut_noiseest" not in entry or not entry.cut_noiseest:
-		entry.cut_noiseest = entry.cut
-	dets, data, offset = try_read(files.read_cut, "cut_noiseest", entry.cut_noiseest)
-	samples = [offset, offset + data.shape[-1]]
-	return dataset.DataSet([
-		dataset.DataField("cut_noiseest", data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges),
-		dataset.DataField("entry", entry)])
+def merge_cuts(cutinfos):
+	# each cutinfo is dets, cuts, offset. Find intersection of detectors
+	detlists = [ci[0] for ci in cutinfos]
+	dets     = utils.common_vals(detlists)
+	detinds  = utils.common_inds(detlists)
+	# Find the max offset and how much we must cut off the start of each member
+	offsets  = np.array([ci[2] for ci in cutinfos])
+	offset   = np.max(offsets)
+	offrel   = offset - offsets
+	# slice each cut
+	cuts = [ci[1][d,o:] for ci,d,o in zip(cutinfos, detinds, offrel)]
+	# And produce the cut sum
+	cut  = cuts[0]
+	for c in cuts[1:]: cut += c
+	return dets, cut, offset
+
+def try_read_cut(params, desc, id):
+	"""We support a more complicated format for cuts."""
+	# If a list is given, try them one by one and use the first usable one
+	if isinstance(params, list):
+		messages = []
+		for param in params:
+			try:
+				return try_read_cut(param, desc)
+			except (IOError,zgetdata.OpenError) as e:
+				messages.append(e.message)
+		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
+	# Convenience transformations, to make things a bit more readable in the parameter files
+	if isinstance(params, basestring):
+		toks = params.split(":")
+		if toks[0].endswith(".hdf") or toks[0].endswith(".pdf"): params = {"type":"hdf","fname":toks[0],"flags":toks[1]}
+		else: params = {"type":"old","fname":params}
+	if   params["type"] == "old": return files.read_cut(params["fname"])
+	elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
+	elif params["type"] == "union":
+		return merge_cuts([try_read_cut(param, desc) for param in params["subs"]])
+	else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
+
+def read_cut(entry, names=["cut_map","cut_basic","cut_noiseest"], default="cut"):
+	fields = [dataset.DataField("entry",entry)]
+	for name in names:
+		if name not in entry or entry[name] is None:
+			if default not in entry or entry[default] is None:
+				raise errors.DataMissing("Trying to read cut, but no cut data present!")
+			param = entry[default]
+		else: param = entry[name]
+		dets, data, offset = try_read_cut(param, name, entry.id)
+		samples = [offset, offset + data.shape[-1]]
+		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges))
+	return dataset.DataSet(fields)
 
 def read_point_offsets(entry, no_correction=False):
 	dets, template = try_read(files.read_point_template, "point_template", entry.point_template)
@@ -302,7 +358,6 @@ readers = {
 		"polangle": read_polangle,
 		"tconst": read_tconst,
 		"cut": read_cut,
-		"cut_noiseest": read_cut_noiseest,
 		"point_offsets": read_point_offsets,
 		"pointsrcs": read_pointsrcs,
 		"layout": read_layout,
@@ -321,7 +376,7 @@ readers = {
 		"tags": read_tags,
 	}
 
-default_fields = ["layout","tags","beam","gain","polangle","tconst","cut","cut_noiseest", "point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
+default_fields = ["layout","tags","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
 def read(entry, fields=None, exclude=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
@@ -512,15 +567,10 @@ def calibrate_polangle(data):
 
 config.default("pad_cuts", 0, "Number of samples by which to widen each cut range by")
 def calibrate_cut(data, n=None):
-	require(data, ["cut"])
 	n = config.get("pad_cuts", n)
-	data.cut = data.cut.widen(n)
-	return data
-
-def calibrate_cut_noiseest(data, n=None):
-	require(data, ["cut_noiseest"])
-	n = config.get("pad_cuts", n)
-	data.cut_noiseest = data.cut_noiseest.widen(n)
+	for name in ["cut","cut_basic","cut_noiseest"]:
+		if name in data:
+			data[name] = data[name].widen(n)
 	return data
 
 def calibrate_beam(data):
@@ -539,14 +589,15 @@ def calibrate_tod(data):
 	return data
 
 def calibrate_tod_real(data, nthread=None):
-	"""Apply gain to tod, fill gaps and deslope"""
-	require(data, ["tod","gain","cut"])
+	"""Apply gain to tod, fill gaps and deslope. We only gapfill
+	data that's bad enough that it should be excluded when estimating
+	the noise model."""
+	require(data, ["tod","gain","cut_basic"])
 	if data.tod.size == 0: raise errors.DataMissing("No tod samples")
 	data.tod  = data.tod.astype(np.int32, copy=False)
 	data.tod /= 128
 	data.tod  = data.tod * (data.gain[:,None]*8)
-	#data.tod = np.floor((data.tod/2**7)) * (data.gain[:,None]*8)
-	gapfill_helper(data.tod, data.cut)
+	gapfill_helper(data.tod, data.cut_basic)
 	utils.deslope(data.tod, w=8, inplace=True)
 	return data
 
@@ -727,7 +778,6 @@ calibrators = {
 	"beam":         calibrate_beam,
 	"polangle":     calibrate_polangle,
 	"cut":          calibrate_cut,
-	"cut_noiseest": calibrate_cut_noiseest,
 	"autocut":      autocut,
 	"fftlen":       crop_fftlen,
 	"tod":          calibrate_tod,
@@ -741,7 +791,7 @@ calibrators = {
 	"buddies":      calibrate_buddies,
 }
 
-default_calib = ["boresight", "gain", "polangle", "hwp", "point_offset", "beam", "cut", "cut_noiseest", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
+default_calib = ["boresight", "gain", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict

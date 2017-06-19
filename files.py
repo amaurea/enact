@@ -1,6 +1,6 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py
-from enlib import pyactgetdata, zgetdata, bunch, utils
+from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -8,7 +8,7 @@ def read_gain(fname):
 	return np.array(data["det_uid"]), np.array(data["cal"])
 
 def read_gain_correction(fname, id=None):
-	"""Read lines of the format id[:tag] val. Returns it as a dict
+	"""Read lines of the format id[:tag] val or id tag val. Returns it as a dict
 	of {id: {tag:val,...}}. So a single TOD may be covered by multiple
 	entries in the file, each of which covers a different subset.
 	Lines that start with # will be ignored. If the id argument is
@@ -18,10 +18,13 @@ def read_gain_correction(fname, id=None):
 		if line.startswith("#"): continue
 		if id and not line.startswith(id) and not line.startswith("*"): continue
 		# Parse the line
-		pre, value = line.split()
-		pretoks = pre.split(":")
-		tod_id = pretoks[0]
-		tag = pretoks[1] if len(pretoks) > 1 else "*"
+		line = line.replace(":"," ")
+		toks = line.split()
+		if len(toks) == 2:
+			tod_id, value = toks
+			tag = "*"
+		else:
+			tod_id, tag, value = toks
 		value = float(value)
 		# And insert it at the right location
 		if tod_id not in res: res[tod_id] = {}
@@ -155,6 +158,15 @@ def read_cut(fname):
 			ocuts.append(cut)
 	ocuts = enlib.rangelist.Multirange(ocuts)
 	return odets, ocuts, offset
+
+def read_cut_hdf(fname, id, flags):
+	"""Reads cuts in the new hdf format. This format has multiple tods per
+	file, so the tod id must be specified. It also lets one specify various
+	flags to construct the actual cuts from, such as planet cuts, glitch cuts, etc."""
+	frange = flagrange.read_flagrange(fname, id)
+	frange = frange.select(flags)
+	cuts   = frange.to_rangelist()
+	return frange.dets, cuts, frange.sample_offset
 
 #def read_cut(fname):
 #	"""Reads the act cut format, returning ids,cuts,offset, where cuts is a Multirange

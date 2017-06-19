@@ -8,21 +8,11 @@ jon_ref   = 1378840304
 class Todinfo(tagdb.Tagdb):
 	def __init__(self, data, sort="id"):
 		tagdb.Tagdb.__init__(self, data, sort=sort, default_fields=["sel",("t",np.NaN)], default_query="sel,isfinite(t)")
-	def get_funcs(self):
-		res = tagdb.Tagdb.get_funcs(self)
 		# Define wrapper here for the default argument
-		def hits(point, polys=None):
-			if polys is None: polys = self.data["bounds"]
-			return point_in_polygon_safe(point, polys)
-		def dist(point, ref=None):
-			if ref is None: ref=[self.data["ra"],self.data["dec"]]
-			return utils.angdist(np.array(point)*utils.degree,np.array(ref)*utils.degree, zenith=False)/utils.degree
-		def grow(polys, dist):
-			return grow_polygon(polys*utils.degree, dist*utils.degree)/utils.degree
-		res["hits"] = hits
-		res["dist"] = dist
-		res["grow"] = grow
-		return res
+		self.add_functor("hits",   hits_fun)
+		self.add_functor("dist",   dist_fun)
+		self.add_functor("grow",   grow_fun)
+		self.add_functor("esplit", esplit_fun)
 	# Print the most useful fields + the true tags for each tod
 	def __repr__(self, nmax=None):
 		lines = []
@@ -84,6 +74,8 @@ def parse_tagfile_loic(fname):
 			if len(toks) >= 6:
 				# 1. [id] [hour] [alt] [az] [pwv] [cut status] [[tag]]
 				# Here a tod is only sel if the status is 2
+				# Hack: work around corrupt lines
+				if len(toks[0].split(".")) != 3: continue
 				ids.append(toks[0])
 				sel.append(int(toks[5]) == 2)
 			elif len(toks) == 1:
@@ -92,6 +84,8 @@ def parse_tagfile_loic(fname):
 				# So /all will be needed to access these.
 				id = toks[0].split("/")[-1]
 				if id.endswith(".zip"): id = id[:-4]
+				# Hack: work around corrupt lines
+				if len(id.split(".")) != 3: continue
 				ids.append(id)
 				sel.append(False)
 	ids = np.asarray(ids + ["foo"])[:-1]
@@ -125,6 +119,35 @@ def grow_polygon(polys, dist):
 		polys[i,polys[i]<mid[i]] -= dist[i]
 		polys[i,polys[i]>mid[i]] += dist[i]
 	return polys
+
+class hits_fun:
+	def __init__(self, data): self.data = data
+	def __call__(point, polys=None):
+		if polys is None: polys = self.data["bounds"]
+		return point_in_polygon_safe(point, polys)
+class dist_fun:
+	def __init__(self, data): self.data = data
+	def __call__(point, ref=None):
+		if ref is None: ref=[self.data["ra"],self.data["dec"]]
+		return utils.angdist(np.array(point)*utils.degree,np.array(ref)*utils.degree, zenith=False)/utils.degree
+class grow_fun:
+	def __init__(self, data): self.data = data
+	def __call__(polys, dist):
+		return grow_polygon(polys*utils.degree, dist*utils.degree)/utils.degree
+class esplit_fun:
+	"""Select the ind'th split out of nsplit total splits of
+	of the data using a day-wise greedy split that tries to
+	get as equal amount of data as possible in each split."""
+	def __init__(self, data): self.data = data
+	def __call__(self, nsplit, ind, nday=4):
+		# First find the number of tods in each day group
+		dayind = (np.asarray(self.data["jon"])/nday).astype(int)
+		uind, inv, counts = np.unique(dayind, return_inverse=True, return_counts=True)
+		groups = utils.greedy_split_simple(counts, nsplit)
+		group_sel = np.zeros(len(counts), np.bool)
+		group_sel[groups[ind]] = True
+		tod_sel = group_sel[inv]
+		return tod_sel
 
 # Functions for extracting tod stats from tod files. Useful for building
 # up Todinfos.
