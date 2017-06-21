@@ -456,7 +456,7 @@ def measure_offsets(times, nstep=10, dstep=1000, maxerr=0.1):
 def require(data, fields):
 	for field in fields:
 		if field not in data:
-			raise errors.DataMissing(field)
+			raise errors.RequireError(field)
 
 def calibrate_boresight(data):
 	"""Calibrate the boresight by converting to radians and
@@ -807,7 +807,7 @@ def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 		status = 1
 		try:
 			data = calibrators[op](data)
-		except errors.DataMissing as e:
+		except errors.RequireError as e:
 			if strict: raise
 			status = 0
 		t2 = time.time()

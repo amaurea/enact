@@ -122,17 +122,17 @@ def grow_polygon(polys, dist):
 
 class hits_fun:
 	def __init__(self, data): self.data = data
-	def __call__(point, polys=None):
+	def __call__(self, point, polys=None):
 		if polys is None: polys = self.data["bounds"]
 		return point_in_polygon_safe(point, polys)
 class dist_fun:
 	def __init__(self, data): self.data = data
-	def __call__(point, ref=None):
+	def __call__(self, point, ref=None):
 		if ref is None: ref=[self.data["ra"],self.data["dec"]]
 		return utils.angdist(np.array(point)*utils.degree,np.array(ref)*utils.degree, zenith=False)/utils.degree
 class grow_fun:
 	def __init__(self, data): self.data = data
-	def __call__(polys, dist):
+	def __call__(self, polys, dist):
 		return grow_polygon(polys*utils.degree, dist*utils.degree)/utils.degree
 class esplit_fun:
 	"""Select the ind'th split out of nsplit total splits of
@@ -186,11 +186,11 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 	E4 = coordinates.transform("hor","cel",[[azs[0]]*Nt, [el]*Nt], time=ts[::-1],    site=d.site)[:,1:]
 	bounds = np.concatenate([E1,E2,E3,E4],1)
 	bounds[0] = utils.rewind(bounds[0])
-	# Grow bounds by array radius
-	bmid = np.mean(bounds,1)
-	for i in range(2):
-		bounds[i,bounds[i]<bmid[i]] -= arad[i]
-		bounds[i,bounds[i]>bmid[i]] += arad[i]
+	## Grow bounds by array radius
+	#bmid = np.mean(bounds,1)
+	#for i in range(2):
+	#	bounds[i,bounds[i]<bmid[i]] -= arad[i]
+	#	bounds[i,bounds[i]>bmid[i]] += arad[i]
 
 	res = bunch.Bunch(id=entry.id, nsamp=d.nsamp, t=t, mjd=mjd, jon=jon,
 			hour=hour, day=day, night=night, dur=dur,
