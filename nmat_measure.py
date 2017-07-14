@@ -32,7 +32,7 @@ from enlib import nmat, utils, array_ops, fft, errors, config, gapfill
 config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
 config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
 
-def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None, cut_unit="freq"):
+def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None, cut_unit="freq", verbose=False):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
 	srate is the sampling rate, dets is the list of detectors, shared specifies
@@ -53,7 +53,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	# Ok, compute our modes, and then measure them in each bin.
 	# When using apodization, the vecs are not necessarily orthogonal,
 	# so don't rely on that.
-	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask, apodization=apodization)
+	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask, apodization=apodization, verbose=verbose)
 	bin_edges = np.array([
 			0.10, 0.25, 0.35, 0.45, 0.55, 0.70, 0.85, 1.00,
 			1.20, 1.40, 1.70, 2.00, 2.40, 2.80, 3.40, 4.00,
@@ -342,7 +342,7 @@ def project_out_from_matrix_weighted(A, V, W):
 	AVW = A.dot(V*W[None]**0.5)
 	return A - AVW.dot(np.linalg.solve(np.conj(V.T).dot(AV), np.conj(AVW.T)))
 
-def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None, skip_mean=False, apodization=10, apod_threshold=0.02):
+def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None, skip_mean=False, apodization=10, apod_threshold=0.02, verbose=False):
 	if mask is None: mask = np.full(ft.shape[1], True, dtype=bool)
 	if apodization is None:
 		apodization = np.inf
@@ -377,12 +377,14 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 			# data to measure
 			median_e = np.median(np.sort(e)[::-1][:b[1]-b[0]+1])
 			score *= np.minimum(1,np.maximum(0,e/(amp_thresholds[bi]*median_e)))**apodization
+		if verbose: print "bin %d: %4d modes above amp_threshold" % (bi, np.sum(score>amp_threshold))
 		if single_threshold and e.size:
 			# Reject modes too concentrated into a single mode. Judge based on
 			# 1-fraction_in_single to make apodization smoother
 			distributedness = 1-np.max(np.abs(v),0)
 			score *= np.minimum(1,distributedness/(1-single_threshold))**apodization
 		good = score >= apod_threshold
+		if verbose: print "bin %d: %4d modes above single_threshold" % (bi, np.sum(good))
 		e, v, score = e[good], v[:,good], score[good]
 		vecs = np.hstack([vecs,v])
 		scores = np.concatenate([scores,score])
