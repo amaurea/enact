@@ -1,5 +1,5 @@
 """This module provides low-level access to the actpol TOD metadata files."""
-import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py
+import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py, astropy.io.fits
 from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange
 
 def read_gain(fname):
@@ -247,6 +247,16 @@ def read_site(fname):
 		res[id] = ast.literal_eval(a.body[0].value)
 	return res
 
+def read_array_info(fname):
+	"""Read the array info, which contains the id, row, column, frequency,
+	wafer, pairing, etc. info."""
+	info = astropy.io.fits.open(fname)[1].data
+	nrow = np.max(info.row)+1
+	ncol = np.max(info.col)+1
+	ndet = len(info)
+	return bunch.Bunch(info=info, ndet=ndet, nrow=nrow, ncol=ncol)
+
+# Obsolete. Use read_array_info instead
 def read_layout(fname):
 	"""Read the detector layout, returning a Bunch of with
 	ndet, nrow, ncol, rows, cols, darksquid, pcb."""

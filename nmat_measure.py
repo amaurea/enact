@@ -416,7 +416,7 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 				raise ValueError("Unknown noise model '%s'" % self.model)
 		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
 			print "Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape)
-			noise_model = nmat.NmatNull()
+			noise_model = nmat.NmatNull(np.arange(tod.shape[0]))
 		if self.cut is not None:
 			self.cut.insert(tod, vals)
 		return noise_model
