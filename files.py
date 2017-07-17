@@ -1,6 +1,6 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py, astropy.io.fits
-from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange
+from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange, sampcut
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -149,14 +149,14 @@ def read_cut(fname):
 			else:
 				ranges = np.zeros([0,2],dtype=int)
 			dets.append(uid)
-			cuts.append(enlib.rangelist.Rangelist(ranges,nsamp))
+			cuts.append(sampcut.from_list([ranges],nsamp))
 	# Filter out fully cut tods
 	odets, ocuts = [], []
 	for det, cut in zip(dets, cuts):
-		if cut.sum() < cut.n:
+		if cut.sum() < cut.nsamp:
 			odets.append(det)
 			ocuts.append(cut)
-	ocuts = enlib.rangelist.Multirange(ocuts)
+	ocuts = sampcut.stack(ocuts)
 	return odets, ocuts, offset
 
 def read_cut_hdf(fname, id, flags):
@@ -165,52 +165,8 @@ def read_cut_hdf(fname, id, flags):
 	flags to construct the actual cuts from, such as planet cuts, glitch cuts, etc."""
 	frange = flagrange.read_flagrange(fname, id)
 	frange = frange.select(flags)
-	cuts   = frange.to_rangelist()
+	cuts   = frange.to_sampcut()
 	return frange.dets, cuts, frange.sample_offset
-
-#def read_cut(fname):
-#	"""Reads the act cut format, returning ids,cuts,offset, where cuts is a Multirange
-#	object."""
-#	ids, cuts = [], []
-#	header = re.compile(r"^(\w+) *= *(\w+)$")
-#	rowcol = re.compile(r"^(\d+) +(\d+)$")
-#	entry  = re.compile(r"^(?:.+ )?r(\d+)c(\d+):(.*)$")
-#	nsamp  = 0
-#	nmax   = 0
-#	offset = 0
-#	for line in utils.lines(fname):
-#		m = rowcol.match(line)
-#		if m:
-#			nrow, ncol = int(m.group(1)), int(m.group(2))
-#			continue
-#		m = header.match(line)
-#		if m:
-#			key, val = m.groups()
-#			if key == "n_samp": nsamp = int(val)
-#			elif key == "samp_offset": offset = int(val)
-#			elif key == "n_row": nrow = int(val)
-#			elif key == "n_col": ncol = int(val)
-#			continue
-#		m = entry.match(line)
-#		if m:
-#			r, c, toks = int(m.group(1)), int(m.group(2)), m.group(3).split()
-#			id = r*ncol+c
-#			ranges = np.array([[int(i) for i in word[1:-1].split(",")] for word in toks])
-#			nmax   = max(nmax,np.max(ranges[:,1]))
-#			# Cap to nsamp if available
-#			if nsamp: ranges[:,1] = np.minimum(nsamp, ranges[:,1])
-#			ranges[:,0] = np.maximum(0, ranges[:,0])
-#			ids.append(id)
-#			cuts.append(ranges)
-#			continue
-#	# If there is no cut information, assume *fully cut*. Also prune totally cut detectors
-#	if nsamp == 0: nsamp = nmax
-#	oids, ocuts = [], []
-#	for id, cut in zip(ids, cuts):
-#		if len(cut) > 1 or len(cut) == 1 and not (np.all(cut[0]==[0,0x7fffffff]) or np.all(cut[0]==[0,nsamp])):
-#			oids.append(id)
-#			ocuts.append(enlib.rangelist.Rangelist(cut,nsamp))
-#	return oids, enlib.rangelist.Multirange(ocuts), offset
 
 def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
 	ndet, nsamp = cuts.shape

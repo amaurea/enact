@@ -1,6 +1,6 @@
 import numpy as np, time, os, multiprocessing
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch, bench
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, zgetdata, pointsrcs, todops, bunch, bench, sampcut
 from enact import files, cuts, filters
 
 def expand_file_params(params, top=True):
@@ -175,8 +175,8 @@ def read_cut(entry, names=["cut","cut_basic","cut_noiseest"], default="cut"):
 			param = entry[default]
 		else: param = entry[name]
 		dets, data, offset = try_read_cut(param, name, entry.id)
-		samples = [offset, offset + data.shape[-1]]
-		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges))
+		samples = [offset, offset + data.nsamp]
+		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=sampcut.stack))
 	return dataset.DataSet(fields)
 
 def read_point_offsets(entry, no_correction=False):
@@ -493,7 +493,7 @@ def calibrate_boresight(data):
 	#  3. Handle it in the autocuts.
 	# The latter is cleaner in my opinion
 	for b in data.boresight:
-		gapfill.gapfill_linear(b, bad, inplace=True)
+		gapfill.gapfill_linear(b, sampcut.from_mask(bad), inplace=True)
 	srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 	data += dataset.DataField("srate", srate)
 	return data
@@ -713,22 +713,20 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	if not ndet or not nsamp: return d
 	# Insert a cut into d if necessary
 	if "cut" not in d:
-		d += dataset.DataField("cut", rangelist.Multirange.empty(ndet,nsamp))
+		d += dataset.DataField("cut", sampcut.empty(ndet,nsamp))
 	# insert an autocut datafield, to keep track of how much data each
 	# automatic cut cost us
 	d += dataset.DataField("autocut", [])
 	def addcut(label, dcut, targets="cn"):
-		dn = dcut.sum() if dcut is not None else 0
+		# det ndet part here allows for broadcasting of cuts from 1-det to full-det
+		dn = dcut.sum()*d.ndet/dcut.ndet if dcut is not None else 0
 		if dn == 0: d.autocut.append([label,0,0])
 		else:
-			n0 = d.cut.sum()
-			if "c" in targets:
-				d.cut = d.cut + dcut
-			if "n" in targets:
-				d.cut_noiseest = d.cut_noiseest + dcut
-			if "b" in targets:
-				d.cut_basic = d.cut_basic + dcut
-			if isinstance(dcut, rangelist.Rangelist): dn *= ndet
+			n0, dn = d.cut.sum(), dcut.sum()
+			dn = dn*d.cut.ndet/dcut.ndet
+			if "c" in targets: d.cut *= dcut
+			if "n" in targets: d.cut_noiseest *= dcut
+			if "b" in targets: d.cut_basic *= dcut
 			d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
 	if config.get("cut_stationary") and "boresight" in d:
 		addcut("stationary", cuts.stationary_cut(d.boresight[1]))
@@ -768,12 +766,12 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	# Get rid of completely cut detectors
-	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
+	keep = np.where(d.cut.sum(axis=1) < nsamp)[0]
 	d.restrict(d.dets[keep])
 	ndet, nsamp = d.ndet, d.nsamp
 
 	def cut_all_if(label, condition):
-		if condition: dcut = rangelist.Rangelist.ones(nsamp)
+		if condition: dcut = sampcut.full(d.ndet, nsamp)
 		else: dcut = None
 		addcut(label, dcut)
 	cut_all_if("max_frac",   config.get("cut_max_frac", max_frac) < cut_fraction)
@@ -781,7 +779,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		cut_all_if("tod_mindur", config.get("cut_tod_mindur") > nsamp/d.srate/60)
 	cut_all_if("tod_mindet", config.get("cut_tod_mindet") > ndet)
 	# Get rid of completely cut detectors again
-	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
+	keep = np.where(d.cut.sum(axis=1) < nsamp)[0]
 	d.restrict(dets=d.dets[keep])
 
 	return d
@@ -897,7 +895,6 @@ def gapfill_helper(tod, cut):
 	gapfiller = {
 			"copy":  gapfill.gapfill_copy,
 			"linear":gapfill.gapfill_linear,
-			"cubic": gapfill.gapfill_cubic,
 			}[method]
 	gapfiller(tod, cut, inplace=True, overlap=context)
 
