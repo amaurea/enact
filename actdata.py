@@ -494,6 +494,7 @@ def calibrate_boresight(data):
 	# The latter is cleaner in my opinion
 	for b in data.boresight:
 		gapfill.gapfill_linear(b, sampcut.from_mask(bad), inplace=True)
+	np.savetxt("time.txt", data.boresight[0])
 	srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 	data += dataset.DataField("srate", srate)
 	return data
