@@ -346,7 +346,7 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 	if mask is None: mask = np.full(ft.shape[1], True, dtype=bool)
 	if apodization is None:
 		apodization = np.inf
-		apod_threshold = 1.0
+		apod_threshold = 0.999
 	ndet = ft.shape[0]
 	vecs = np.zeros([ndet,0])
 	if not skip_mean:
@@ -377,7 +377,7 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 			# data to measure
 			median_e = np.median(np.sort(e)[::-1][:b[1]-b[0]+1])
 			score *= np.minimum(1,np.maximum(0,e/(amp_thresholds[bi]*median_e)))**apodization
-		if verbose: print "bin %d: %4d modes above amp_threshold" % (bi, np.sum(score>amp_threshold))
+		if verbose: print "bin %d: %4d modes above amp_threshold" % (bi, np.sum(score>=apod_threshold))
 		if single_threshold and e.size:
 			# Reject modes too concentrated into a single mode. Judge based on
 			# 1-fraction_in_single to make apodization smoother
