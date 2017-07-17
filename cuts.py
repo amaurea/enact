@@ -1,7 +1,7 @@
 """This module implements extra, dynamic data cuts for ACT data."""
 import numpy as np, time
 from enlib.resample import resample_bin
-from enlib import rangelist, utils, config, coordinates, array_ops, pmat
+from enlib import utils, config, coordinates, array_ops, pmat, sampcut
 
 config.default("cut_turnaround_step", 20, "Smoothing length for turnaround cut. Pointing will be downsampled by this number before acceleration is computed.")
 config.default("cut_turnaround_lim",   5, "Acceleration threshold for turnaround cut in units of standard deviations of the acceleration.")
@@ -16,11 +16,11 @@ def turnaround_cut(t, az, step=None, lim=None, margin=None):
 	ddaz = (az2[2:]+az2[:-2]-2*az2[1:-1])/dt**2
 	mask = np.abs(ddaz) > 2*np.std(ddaz)
 	mask = np.abs(ddaz) > lim*np.std(ddaz[~mask])
-	r = utils.mask2range(mask)
-	r[:,0] = np.maximum(0,     r[:,0]-margin)
-	r[:,1] = np.minimum(len(t),r[:,1]+margin)
-	r *= step
-	return rangelist.Rangelist(r, len(t))
+	res  = sampcut.from_mask(mask)
+	res.ranges *= step
+	res.nsamp   = len(t)
+	res  = res.widen(margin*step)
+	return res
 
 config.default("cut_ground_az", "57:62,-62:-57,73:75", "Az ranges to consider for ground cut")
 config.default("cut_ground_el", "0:38", "El ranges to consider for ground cut")
@@ -37,8 +37,8 @@ def ground_cut(bore, det_offs, az_ranges=None, el_ranges=None):
 		mask_el = np.full([n],False,dtype=bool)
 		for er in el_ranges:
 			mask_el |= utils.between_angles(p[1], er)
-		cuts.append(rangelist.Rangelist(mask_az&mask_el))
-	return rangelist.Multirange(cuts)
+		cuts.append(sampcut.from_mask(mask_az&mask_el))
+	return sampcut.stack(cuts)
 
 def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 	"""Cut samples that get too close to the specified object
@@ -51,7 +51,7 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 	cosel      = np.cos(obj_pos[1])
 	# Only cut if above horizon
 	above_horizon = obj_pos[1]>0
-	null_cut = rangelist.Multirange.empty(det_offs.shape[0], bore.shape[1])
+	null_cut = sampcut.empty(det_offs.shape[0], bore.shape[1])
 	if np.all(~above_horizon): return null_cut
 	# Find center of array, and radius
 	arr_center = np.mean(det_offs,0)
@@ -75,8 +75,8 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 		det_mask_full = np.zeros(bore.shape[1], bool)
 		det_mask_full[cand_inds] = det_mask
 		# And use this to build actual cuts
-		cuts.append(rangelist.Rangelist(det_mask_full))
-	res = rangelist.Multirange(cuts)
+		cuts.append(sampcut.from_mask(det_mask_full))
+	res = sampcut.stack(cuts)
 	return res
 
 def avoidance_cut_old(bore, det_offs, site, name_or_pos, margin):
@@ -89,7 +89,7 @@ def avoidance_cut_old(bore, det_offs, site, name_or_pos, margin):
 	obj_rect = utils.ang2rect(obj_pos, zenith=False)
 	# Only cut if above horizon
 	above_horizon = obj_pos[1]>0
-	if np.all(~above_horizon): return rangelist.Multirange.empty(det_offs.shape[0], bore.shape[1])
+	if np.all(~above_horizon): return sampcut.empty(det_offs.shape[0], bore.shape[1])
 	cuts = []
 	for di, off in enumerate(det_offs):
 		det_pos  = bore[1:]+off[:,None]
@@ -100,8 +100,8 @@ def avoidance_cut_old(bore, det_offs, site, name_or_pos, margin):
 		cdist = np.sum(obj_rect*det_rect,0)
 		# Cut samples above horizon that are too close
 		bad  = (cdist > cmargin) & above_horizon
-		cuts.append(rangelist.Rangelist(bad))
-	res = rangelist.Multirange(cuts)
+		cuts.append(sampcut.from_mask(bad))
+	res = sampcut.stack(cuts)
 	return res
 
 def det2hex(dets, ncol=32):
@@ -120,15 +120,15 @@ def pickup_cut(az, dets, pcut):
 	tod per scanning direction."""
 	hex = det2hex(dets)
 	dir = np.concatenate([[0],az[1:]<az[:-1]])
-	res = rangelist.Multirange.empty(len(dets),len(az))
+	res = sampcut.empty(len(dets),len(az))
 	for cdir,chex,az1,az2,strength in pcut:
-		myrange  = rangelist.Rangelist((az>=az1)&(az<az2)&(dir==cdir))
-		uncut    = rangelist.Rangelist.empty(len(az))
+		myrange  = sampcut.from_mask((az>=az1)&(az<az2)&(dir==cdir))
+		uncut    = sampcut.empty(1, len(az))
 		mycut    = []
 		for h in hex:
 			if h == chex: mycut.append(myrange)
 			else:         mycut.append(uncut)
-		res = res + rangelist.Multirange(mycut)
+		res *= sampcut.stack(mycut)
 	return res
 
 config.default("cut_stationary_tol", 0.2, "Number of degrees the telescope must move before the scan is considered to have started. Also applies at the end of the tod.")
@@ -140,14 +140,15 @@ def stationary_cut(az, tol=None):
 	b2 = np.where(np.abs(az-az[-1])>tol)[0]
 	if len(b1) == 0 or len(b2) == 0:
 		# Entire tod cut!
-		return rangelist.Rangelist.ones(len(az))
-	return rangelist.Rangelist([[0,b1[0]],[b2[-1],len(az)]],len(az))
+		return sampcut.full(1,len(az))
+	else:
+		return sampcut.from_list([[[0,b1[0]],[b2[-1],len(az)]]],len(az))
 
 config.default("cut_tod_ends_nsec", 0.5, "Number of seconds to cut at each end of tod")
 def tod_end_cut(nsamp, srate, cut_secs=None):
 	"""Cut cut_secs seconds of data at each end of the tod"""
 	ncut = int(config.get("cut_tod_ends_nsec",cut_secs)*srate)
-	return rangelist.Rangelist([[0,ncut],[nsamp-ncut,nsamp]], nsamp)
+	return sampcut.from_list([[[0,ncut],[nsamp-ncut,nsamp]]], nsamp)
 
 max_frac   = config.default("cut_mostly_cut_frac",   0.20, "Cut detectors with a higher fraction of cut samples than this.")
 max_nrange = config.default("cut_mostly_cut_nrange", 50, "Cut detectors with a larger number of cut ranges than this.")
@@ -160,9 +161,9 @@ def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
 	bad = (cut_samps > cuts.shape[-1]*max_frac) | (cut_nrange > max_nrange)
 	ocuts = []
 	for b in bad:
-		if b: ocuts.append(rangelist.Rangelist.ones(cuts.shape[-1]))
-		else: ocuts.append(rangelist.Rangelist.empty(cuts.shape[-1]))
-	return rangelist.Multirange(ocuts)
+		if b: ocuts.append(sampcut.full(1,cuts.shape[-1]))
+		else: ocuts.append(sampcut.empty(1,cuts.shape[-1]))
+	return sampcut.stack(ocuts)
 
 config.default("cut_point_srcs_threshold", 20, "Signal threshold to use for point source cut. Areas where the source is straonger than this in uK will be cut.")
 def point_source_cut(d, srcs, threshold=None):
@@ -180,8 +181,8 @@ def point_source_cut(d, srcs, threshold=None):
 	# Use them to define mask
 	cuts = []
 	for t in tod:
-		cuts.append(rangelist.Rangelist(t > threshold))
-	return rangelist.Multirange(cuts)
+		cuts.append(sampcut.from_mask(t > threshold))
+	return sampcut.stack(cuts)
 
 def test_cut(bore, frac=0.3, dfrac=0.05):
 	b  = bore[1:]
@@ -193,4 +194,4 @@ def test_cut(bore, frac=0.3, dfrac=0.05):
 	c  = [c0-w*dfrac,c0+w*dfrac]
 	bad = (b[si]>=c[0])&(b[si]<c[1])
 	if si == 1: bad[...] = False
-	return rangelist.Rangelist(bad)
+	return sampcut.from_mask(bad)

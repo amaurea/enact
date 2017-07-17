@@ -1,6 +1,6 @@
 import numpy as np, time, os, multiprocessing
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, rangelist, zgetdata, pointsrcs, todops, bunch, bench
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, zgetdata, pointsrcs, todops, bunch, bench
 from enact import files, cuts, filters
 
 def expand_file_params(params, top=True):
@@ -173,7 +173,7 @@ def read_cut(entry, names=["cut","cut_basic","cut_noiseest"], default="cut"):
 		else: param = entry[name]
 		dets, data, offset = try_read_cut(param, name, entry.id)
 		samples = [offset, offset + data.shape[-1]]
-		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=rangelist.stack_ranges))
+		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=sampcut.stack))
 	return dataset.DataSet(fields)
 
 def read_point_offsets(entry, no_correction=False):
@@ -701,7 +701,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	if not ndet or not nsamp: return d
 	# Insert a cut into d if necessary
 	if "cut" not in d:
-		d += dataset.DataField("cut", rangelist.Multirange.empty(ndet,nsamp))
+		d += dataset.DataField("cut", sampcut.empty(ndet,nsamp))
 	# insert an autocut datafield, to keep track of how much data each
 	# automatic cut cost us
 	d += dataset.DataField("autocut", [])
@@ -709,11 +709,10 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		if dcut is None: d.autocut.append([label, 0, 0])
 		else:
 			n0, dn = d.cut.sum(), dcut.sum()
-			if "c" in targets:
-				d.cut = d.cut + dcut
-			if "n" in targets:
-				d.cut_noiseest = d.cut_noiseest + dcut
-			if isinstance(dcut, rangelist.Rangelist): dn *= ndet
+			# Hande the effect of broadcasting
+			dn = dn*d.cut.ndet/dcut.ndet
+			if "c" in targets: d.cut *= dcut
+			if "n" in targets: d.cut_noiseest *= dcut
 			d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
 	if config.get("cut_stationary") and "boresight" in d:
 		addcut("stationary", cuts.stationary_cut(d.boresight[1]))
@@ -758,7 +757,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	ndet, nsamp = d.ndet, d.nsamp
 
 	def cut_all_if(label, condition):
-		if condition: dcut = rangelist.Rangelist.ones(nsamp)
+		if condition: dcut = sampcut.full(d.ndet, nsamp)
 		else: dcut = None
 		addcut(label, dcut)
 	cut_all_if("max_frac",   config.get("cut_max_frac", max_frac) < cut_fraction)
