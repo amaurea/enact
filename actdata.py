@@ -226,7 +226,7 @@ def read_boresight(entry, moby=False):
 	if moby: bore, flags = try_read(files.read_boresight_moby, "boresight", entry.tod)
 	else:    bore, flags = try_read(files.read_boresight,      "boresight", entry.tod)
 	return dataset.DataSet([
-		dataset.DataField("boresight", bore, samples=[0,bore.shape[1]], sample_index=1),
+		dataset.DataField("boresight", bore, samples=[0,bore.shape[1]], sample_index=1, force_contiguous=True),
 		dataset.DataField("flags",     flags,samples=[0,flags.shape[0]],sample_index=0),
 		dataset.DataField("entry",     entry)])
 
@@ -492,9 +492,8 @@ def calibrate_boresight(data):
 	#  2. Construct a cut on the fly
 	#  3. Handle it in the autocuts.
 	# The latter is cleaner in my opinion
-	for b in data.boresight:
-		gapfill.gapfill_linear(b, sampcut.from_mask(bad), inplace=True)
-	np.savetxt("time.txt", data.boresight[0])
+	cut = sampcut.from_mask(bad)
+	gapfill.gapfill_linear(data.boresight, cut, inplace=True)
 	srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 	data += dataset.DataField("srate", srate)
 	return data
@@ -894,7 +893,6 @@ config.default("gapfill_context", 10, "Samples of context to use for matching up
 def gapfill_helper(tod, cut):
 	method, context = config.get("gapfill"), config.get("gapfill_context")
 	gapfiller = {
-			"copy":  gapfill.gapfill_copy,
 			"linear":gapfill.gapfill_linear,
 			}[method]
 	gapfiller(tod, cut, inplace=True, overlap=context)

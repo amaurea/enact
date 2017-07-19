@@ -401,7 +401,7 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		# If we have noise estimation cuts, we must gapfill these
 		# before measuring the noise, and restore them afterwards
 		if self.cut is not None:
-			vals = self.cut.extract(tod)
+			vals = self.cut.extract_samples(tod)
 			gapfill.gapfill(tod, self.cut, inplace=True)
 		try:
 			if self.model == "jon":
@@ -420,7 +420,7 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 			print "Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape)
 			noise_model = nmat.NmatNull(np.arange(tod.shape[0]))
 		if self.cut is not None:
-			self.cut.insert(tod, vals)
+			self.cut.insert_samples(tod, vals)
 		return noise_model
 	def __getitem__(self, sel):
 		res, detslice, sampslice = self.getitem_helper(sel)
