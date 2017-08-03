@@ -468,7 +468,9 @@ def calibrate_boresight(data):
 	# Convert angles to radians
 	if data.nsamp in [0, None]: raise errors.DataMissing("nsamp")
 	if data.nsamp < 0: raise errors.DataMissing("nsamp")
-	data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
+	data.boresight[1]  = robust_unwind(data.boresight[1], period=360, cut=[0,180], tol=0.05)
+	data.boresight[1:]*= np.pi/180
+	#data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
 	bad_flag = (data.flags!=0)*(data.flags!=0x10)
 	bad_value= find_boresight_jumps(data.boresight)
@@ -903,3 +905,18 @@ def expand_buddies(buddies, ndet):
 			# the local patch bounds in the pointing matrix.
 			bfull[len(b):,di,:2] = b[0,:2]
 	return bfull
+
+def robust_unwind(a, period=2*np.pi, cut=[0,np.pi], tol=1e-3):
+	"""Like utils.unwind, but only registers something as an angle jump if
+	the values on either side of the jump are close enough to a set of angle
+	cuts (or adding N*period to them). Only 1d input is supported."""
+	# Find places where a jump would be acceptable
+	near_cut = np.zeros(a.size, bool)
+	for cutval in cut:
+		near_cut |= np.abs((a - cutval + period/2) % period + period/2) < tol
+	# Find places where we would naively think there is a jump
+	jumps = np.concatenate([0,np.round((a[1:]-a[:-1])/period)])
+	# Mask out jumps in illegal regions. These are just glitches.
+	jumps[~near_cut] = 0
+	# Then correct our values
+	return a - np.cumsum(jumps)*period
