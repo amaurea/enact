@@ -156,13 +156,13 @@ def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
 	"""Mark detectors with too many cuts or too large cuts as completely cut."""
 	max_frac   = config.get("cut_mostly_cut_frac",   max_frac)
 	max_nrange = config.get("cut_mostly_cut_nrange", max_nrange)
-	cut_samps  = cuts.sum(flat=False)
-	cut_nrange = np.array([len(c.ranges) for c in cuts.data])
-	bad = (cut_samps > cuts.shape[-1]*max_frac) | (cut_nrange > max_nrange)
+	cut_samps  = cuts.sum(axis=1)
+	cut_nrange = cuts.nranges
+	bad = (cut_samps > cuts.nsamp*max_frac) | (cut_nrange > max_nrange)
 	ocuts = []
 	for b in bad:
-		if b: ocuts.append(sampcut.full(1,cuts.shape[-1]))
-		else: ocuts.append(sampcut.empty(1,cuts.shape[-1]))
+		if b: ocuts.append(sampcut.full(1,cuts.nsamp))
+		else: ocuts.append(sampcut.empty(1,cuts.nsamp))
 	return sampcut.stack(ocuts)
 
 config.default("cut_point_srcs_threshold", 20, "Signal threshold to use for point source cut. Areas where the source is straonger than this in uK will be cut.")

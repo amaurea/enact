@@ -1,6 +1,6 @@
 import numpy as np, time, os, multiprocessing
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, zgetdata, pointsrcs, todops, bunch, bench
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, zgetdata, pointsrcs, todops, bunch, bench, sampcut
 from enact import files, cuts, filters
 
 def expand_file_params(params, top=True):
@@ -157,11 +157,14 @@ def try_read_cut(params, desc, id):
 		toks = params.split(":")
 		if toks[0].endswith(".hdf") or toks[0].endswith(".pdf"): params = {"type":"hdf","fname":toks[0],"flags":toks[1]}
 		else: params = {"type":"old","fname":params}
-	if   params["type"] == "old": return files.read_cut(params["fname"])
-	elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
-	elif params["type"] == "union":
-		return merge_cuts([try_read_cut(param, desc) for param in params["subs"]])
-	else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
+	try:
+		if   params["type"] == "old": return files.read_cut(params["fname"])
+		elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
+		elif params["type"] == "union":
+			return merge_cuts([try_read_cut(param, desc) for param in params["subs"]])
+		else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
+	except IOError as e:
+		raise errors.DataMissing(desc + ": " + e.message)
 
 def read_cut(entry, names=["cut","cut_basic","cut_noiseest"], default="cut"):
 	fields = [dataset.DataField("entry",entry)]
@@ -172,7 +175,7 @@ def read_cut(entry, names=["cut","cut_basic","cut_noiseest"], default="cut"):
 			param = entry[default]
 		else: param = entry[name]
 		dets, data, offset = try_read_cut(param, name, entry.id)
-		samples = [offset, offset + data.shape[-1]]
+		samples = [offset, offset + data.nsamp]
 		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=sampcut.stack))
 	return dataset.DataSet(fields)
 
@@ -223,23 +226,15 @@ def read_boresight(entry, moby=False):
 	if moby: bore, flags = try_read(files.read_boresight_moby, "boresight", entry.tod)
 	else:    bore, flags = try_read(files.read_boresight,      "boresight", entry.tod)
 	return dataset.DataSet([
-		dataset.DataField("boresight", bore, samples=[0,bore.shape[1]], sample_index=1),
+		dataset.DataField("boresight", bore, samples=[0,bore.shape[1]], sample_index=1, force_contiguous=True),
 		dataset.DataField("flags",     flags,samples=[0,flags.shape[0]],sample_index=0),
 		dataset.DataField("entry",     entry)])
 
 def read_dark(entry):
-	# Read dark detector data. We do this a bit differently than the rest because
-	# we don't want the total set of detectors to be the intersection between te
-	# dark detectors and the normal ones. We could make the dark set a separate
-	# DataSet, but that's inconvenient and error prone. So instead, we will make
-	# them part of the main data set, but handle the detector intersection stuff
-	# manually.
-	dark_dets = try_read(files.read_dark_dets, "dark_dets", entry.dark_dets)
-	#cut_dets, cuts, offset = try_read(files.read_cut, "dark_cut", entry.dark_cut)
-	#samples = [offset, offset + cuts.shape[-1]]
-	# Restrict to common indices
-	#dinds, cinds = utils.common_inds([dark_dets, cut_dets])
-	#dark_dets, cuts = dark_dets[dinds], cuts[cinds]
+	# Need to read array info to find out which detectors are dark
+	ainfo = read_array_info(entry).array_info
+	dark_dets = ainfo.info.det_uid[ainfo.info.det_type=="dark_tes"]
+	# Then read the actual tod
 	_, tod = try_read(files.read_tod, "dark_tod", entry.tod, ids=dark_dets)
 	samples = [0,tod.shape[-1]]
 	return dataset.DataSet([
@@ -295,6 +290,12 @@ def read_layout(entry):
 	data = try_read(files.read_layout, "layout", entry.layout)
 	return dataset.DataSet([
 		dataset.DataField("layout", data),
+		dataset.DataField("entry", entry)])
+
+def read_array_info(entry):
+	data = try_read(files.read_array_info, "array_info", entry.array_info)
+	return dataset.DataSet([
+		dataset.DataField("array_info",data),
 		dataset.DataField("entry", entry)])
 
 def read_pointsrcs(entry):
@@ -360,6 +361,7 @@ readers = {
 		"cut": read_cut,
 		"point_offsets": read_point_offsets,
 		"pointsrcs": read_pointsrcs,
+		"array_info": read_array_info,
 		"layout": read_layout,
 		"beam": read_beam,
 		"site": read_site,
@@ -376,15 +378,17 @@ readers = {
 		"tags": read_tags,
 	}
 
-default_fields = ["layout","tags","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
-def read(entry, fields=None, exclude=None, verbose=False):
+default_fields = ["array_info","tags","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
+def read(entry, fields=None, exclude=None, include=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
-		return read_combo(entry, fields=fields, exclude=exclude, verbose=verbose)
+		return read_combo(entry, fields=fields, exclude=exclude, include=include,verbose=verbose)
 	# The normal case for a 1d to below
 	if fields is None: fields = list(default_fields)
-	if exclude is None: exclude = []
-	for ex in exclude: fields.remove(ex)
+	if include is not None:
+		for inc in include: fields.append(inc)
+	if exclude is not None:
+		for ex in exclude: fields.remove(ex)
 	d = None
 	for field in fields:
 		t1 = time.time()
@@ -404,8 +408,8 @@ def read_combo(entries, fields=None, exclude=None, verbose=False):
 	if fields is None: fields = list(default_fields)
 	if exclude is None: exclude = []
 	for ex in exclude: fields.remove(ex)
-	# We need layout and boresight for combo reading
-	if "layout" not in fields: fields = ["layout"] + fields
+	# We need array_info and boresight for combo reading
+	if "array_info" not in fields: fields = ["array_info"] + fields
 	if "boresight" not in fields: fields = ["boresight"] + fields
 	ds = []
 	for entry in entries:
@@ -413,7 +417,7 @@ def read_combo(entries, fields=None, exclude=None, verbose=False):
 		ds.append(read(entry, fields=fields, verbose=verbose))
 	if len(ds) == 1: return ds[0]
 	# Offset samples to align them, and make detector ids unique
-	det_offs = utils.cumsum([d.layout.ndet for d in ds])
+	det_offs = utils.cumsum([d.array_info.ndet for d in ds])
 	offs_real = measure_offsets([d.boresight[0] for d in ds])
 	offs = np.round(offs_real).astype(int)
 	assert np.all(np.abs(offs-offs_real) < 0.1), "Non-integer sample offset in read_combo"
@@ -431,17 +435,25 @@ def read_combo(entries, fields=None, exclude=None, verbose=False):
 	# Merge into a union dataset
 	if verbose: print "union"
 	dtot = dataset.detector_union(ds)
-	# Detector layout cannot be automatically merged, so do it manually. We
+	# Array info cannot be automatically merged, so do it manually. We
 	# assume that all have the same rectangular layout with the same number
 	# of columns.
-	row_offs = utils.cumsum([d.layout.nrow for d in ds])
-	dtot.layout.rows = np.concatenate([d.layout.rows + off for d, off in zip(ds, row_offs)])
-	dtot.layout.cols = np.concatenate([d.layout.cols for d in ds])
-	dtot.layout.dark = np.concatenate([d.layout.dark for d in ds])
-	dtot.layout.pcb  = np.concatenate([d.layout.pcb  for d in ds])
-	dtot.layout.nrow = np.max(dtot.layout.rows)+1
-	dtot.layout.ncol = np.max(dtot.layout.cols)+1
-	dtot.layout.ndet = len(dtot.layout.rows)
+	row_offs = utils.cumsum([d.array_info.nrow for d in ds])
+	infos = []
+	for i, d in enumerate(ds):
+		info = d.array_info.info.copy()
+		info.det_uid += det_offs[i]
+		info.row     += row_offs[i]
+		infos.append(info)
+	info = np.concatenate(infos)
+	dtot.array_info.info = info
+	dtot.array_info.ndet = len(info)
+	dtot.array_info.nrow = np.max(info.row)+1
+	# Dark detectors must also be handled manually, since they don't
+	# follow the normal det slicing
+	if "dark_tod"  in dtot: dtot.dark_tod  = np.concatenate([d.dark_tod for d in ds],0)
+	if "dark_dets" in dtot: dtot.dark_dets = np.concatenate([d.dark_dets+det_offs[i] for i,d in enumerate(ds)],0)
+	if "dark_cut"  in dtot: dtot.dark_cut = rangelist.stack_ranges([d.dark_cut for d in ds],0)
 	return dtot
 
 def measure_offsets(times, nstep=10, dstep=1000, maxerr=0.1):
@@ -482,8 +494,8 @@ def calibrate_boresight(data):
 	#  2. Construct a cut on the fly
 	#  3. Handle it in the autocuts.
 	# The latter is cleaner in my opinion
-	for b in data.boresight:
-		gapfill.gapfill_linear(b, bad, inplace=True)
+	cut = sampcut.from_mask(bad)
+	gapfill.gapfill_linear(data.boresight, cut, inplace=True)
 	srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 	data += dataset.DataField("srate", srate)
 	return data
@@ -685,7 +697,7 @@ config.default("cut_ground",     False, "Whether to apply the turnaround cut.")
 config.default("cut_sun",        False, "Whether to apply the sun distance cut.")
 config.default("cut_moon",       False, "Whether to apply the moon distance cut.")
 config.default("cut_pickup",     False, "Whether to apply the pickup cut.")
-config.default("cut_obj",        "",    "General list of celestial objects to cut")
+config.default("cut_obj",        "Venus,Mars,Jupiter,Saturn,Uranus,Neptune", "General list of celestial objects to cut")
 config.default("cut_stationary", True,  "Whether to apply the stationary ends cut")
 config.default("cut_tod_ends",   True,  "Whether to apply the tod ends cut")
 config.default("cut_mostly_cut", True,  "Whether to apply the mostly cut detector cut")
@@ -708,13 +720,15 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# automatic cut cost us
 	d += dataset.DataField("autocut", [])
 	def addcut(label, dcut, targets="cn"):
-		if dcut is None: d.autocut.append([label, 0, 0])
+		# det ndet part here allows for broadcasting of cuts from 1-det to full-det
+		dn = dcut.sum()*d.ndet/dcut.ndet if dcut is not None else 0
+		if dn == 0: d.autocut.append([label,0,0])
 		else:
 			n0, dn = d.cut.sum(), dcut.sum()
-			# Hande the effect of broadcasting
 			dn = dn*d.cut.ndet/dcut.ndet
 			if "c" in targets: d.cut *= dcut
 			if "n" in targets: d.cut_noiseest *= dcut
+			if "b" in targets: d.cut_basic *= dcut
 			d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
 	if config.get("cut_stationary") and "boresight" in d:
 		addcut("stationary", cuts.stationary_cut(d.boresight[1]))
@@ -728,6 +742,10 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		addcut("avoidance",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Sun", config.get("cut_sun_dist")*np.pi/180))
 	if config.get("cut_moon", moon) and "boresight" in d and "point_offset" in d and "site" in d:
 		addcut("moon",cuts.avoidance_cut(d.boresight, d.point_offset, d.site, "Moon", config.get("cut_moon_dist")*np.pi/180))
+	if config.get("cut_pickup", pickup) and "boresight" in d and "pickup_cut" in d:
+		addcut("pickup",cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut))
+	if config.get("cut_mostly_cut"):
+		addcut("mostly_cut", cuts.cut_mostly_cut_detectors(d.cut))
 	if config.get("cut_obj"):
 		objs = utils.split_outside(config.get("cut_obj"),",")
 		for obj in objs:
@@ -735,15 +753,11 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 			objname = toks[0]
 			if objname.startswith("["):
 				objname = [float(w)*utils.degree for w in objname[1:-1].split(",")]
-			dist    = 0.1*utils.degree
+			dist    = 0.2*utils.degree
 			if len(toks) > 1: dist = float(toks[1])*utils.degree
 			# Hack: only cut for noise estimation purposes if dist is negative
-			targets = "cn" if dist > 0 else "n"
+			targets = "cnb" if dist > 0 else "n"
 			addcut(obj, cuts.avoidance_cut(d.boresight, d.point_offset, d.site, objname, dist), targets=targets)
-	if config.get("cut_pickup", pickup) and "boresight" in d and "pickup_cut" in d:
-		addcut("pickup",cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut))
-	if config.get("cut_mostly_cut"):
-		addcut("mostly_cut", cuts.cut_mostly_cut_detectors(d.cut))
 	if config.get("cut_point_srcs"):
 		params = pointsrcs.src2param(d.pointsrcs)
 		params[:,5:7] = 1
@@ -754,7 +768,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
 	# Get rid of completely cut detectors
-	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
+	keep = np.where(d.cut.sum(axis=1) < nsamp)[0]
 	d.restrict(d.dets[keep])
 	ndet, nsamp = d.ndet, d.nsamp
 
@@ -767,7 +781,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		cut_all_if("tod_mindur", config.get("cut_tod_mindur") > nsamp/d.srate/60)
 	cut_all_if("tod_mindet", config.get("cut_tod_mindet") > ndet)
 	# Get rid of completely cut detectors again
-	keep = np.where(d.cut.sum(flat=False) < nsamp)[0]
+	keep = np.where(d.cut.sum(axis=1) < nsamp)[0]
 	d.restrict(dets=d.dets[keep])
 
 	return d
@@ -881,9 +895,7 @@ config.default("gapfill_context", 10, "Samples of context to use for matching up
 def gapfill_helper(tod, cut):
 	method, context = config.get("gapfill"), config.get("gapfill_context")
 	gapfiller = {
-			"copy":  gapfill.gapfill_copy,
 			"linear":gapfill.gapfill_linear,
-			"cubic": gapfill.gapfill_cubic,
 			}[method]
 	gapfiller(tod, cut, inplace=True, overlap=context)
 
@@ -920,3 +932,12 @@ def robust_unwind(a, period=2*np.pi, cut=[0,np.pi], tol=1e-3):
 	jumps[~near_cut] = 0
 	# Then correct our values
 	return a - np.cumsum(jumps)*period
+
+#def build_det_group_ids(ainfo):
+#	det_type = np.unique(array_info.det_type, return_inverse=True)[1]
+#	pos      = np.array([ainfo.array_x,ainfo.array_y,ainfo.nom_freq,det_type]).T
+#	groups   = utils.find_equal_groups(pos, tol=1e-3)
+#	group_ids = np.full([len(ainfo)],-1,int)
+#	for i, g in enumerate(groups):
+#		group_ids[g] = i
+#	return group_ids

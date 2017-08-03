@@ -346,7 +346,7 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 	if mask is None: mask = np.full(ft.shape[1], True, dtype=bool)
 	if apodization is None:
 		apodization = np.inf
-		apod_threshold = 1.0
+		apod_threshold = 0.999
 	ndet = ft.shape[0]
 	vecs = np.zeros([ndet,0])
 	if not skip_mean:
@@ -377,7 +377,7 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 			# data to measure
 			median_e = np.median(np.sort(e)[::-1][:b[1]-b[0]+1])
 			score *= np.minimum(1,np.maximum(0,e/(amp_thresholds[bi]*median_e)))**apodization
-		if verbose: print "bin %d: %4d modes above amp_threshold" % (bi, np.sum(score>amp_threshold))
+		if verbose: print "bin %d: %4d modes above amp_threshold" % (bi, np.sum(score>=apod_threshold))
 		if single_threshold and e.size:
 			# Reject modes too concentrated into a single mode. Judge based on
 			# 1-fraction_in_single to make apodization smoother
@@ -401,7 +401,7 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		# If we have noise estimation cuts, we must gapfill these
 		# before measuring the noise, and restore them afterwards
 		if self.cut is not None:
-			vals = self.cut.extract(tod)
+			vals = self.cut.extract_samples(tod)
 			gapfill.gapfill(tod, self.cut, inplace=True)
 		try:
 			if self.model == "jon":
@@ -418,9 +418,9 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 				raise ValueError("Unknown noise model '%s'" % self.model)
 		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
 			print "Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape)
-			noise_model = nmat.NmatNull()
+			noise_model = nmat.NmatNull(np.arange(tod.shape[0]))
 		if self.cut is not None:
-			self.cut.insert(tod, vals)
+			self.cut.insert_samples(tod, vals)
 		return noise_model
 	def __getitem__(self, sel):
 		res, detslice, sampslice = self.getitem_helper(sel)
