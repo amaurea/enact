@@ -7,6 +7,15 @@ def tconst_filter(freq, tau):
 	detector time constants, for the given frequensies."""
 	return 1/(2*np.pi*1j*freq*tau+1)
 
+def mce_filter(freq, f_raw, params):
+	"""Parametrized act readout filter, based on moby's implementation.
+	This is a parametrized version of the static filter below."""
+	z  = np.exp(-2j*np.pi*freq/f_raw)
+	b11, b12, b21, b22 = np.array(params[:4])*0.5**14
+	H  = (1+z)**4 / (1-b11*z+b12*z**2) / (1-b21*z+b22*z**2)
+	H /= 2**4 / (1-b11+b12) / (1-b21+b22)
+	return H
+
 def butterworth_filter(freq):
 	"""Returns the fourier space representation of the
 	Butterworth-like filter used in the ACT hardware

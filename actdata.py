@@ -637,12 +637,12 @@ def calibrate_tod_real(data, nthread=None):
 
 def calibrate_tod_fourier(data):
 	"""Deconvolve instrument filters and time constants from TOD"""
-	require(data, ["tod", "tau", "srate"])
+	require(data, ["tod", "tau", "srate", "mce_params"])
 	if data.tod.size == 0: return data
 	ft     = fft.rfft(data.tod)
 	freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
 	# Deconvolve the butterworth filter
-	butter = filters.butterworth_filter(freqs)
+	butter = filters.mce_filter(freqs, data.mce_fsamp, data.mce_params)
 	ft /= butter
 	# And the time constants
 	for di in range(len(ft)):
