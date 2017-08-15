@@ -63,14 +63,17 @@ def read_gain(entry):
 	except KeyError: raise errors.DataMissing("gain_correction id: " + entry.id)
 	mask = np.isfinite(gain_raw)*(gain_raw != 0)
 	dets, gain_raw = dets[mask], gain_raw[mask]
+	# Get the gain mode, which tells us how to compute the total gain
+	gain_mode = entry.gain_mode if "gain_mode" in entry else "direct"
 	return dataset.DataSet([
 		dataset.DataField("gain_raw", gain_raw, dets=dets, det_index=0),
 		dataset.DataField("gain_correction", correction),
+		dataset.DataField("gain_mode", gain_mode),
 		dataset.DataField("entry", entry)])
 
 def calibrate_gain(data):
 	"""Combine raw gains and gain corrections to form the final gain."""
-	require(data, ["gain_raw","gain_correction","tag_defs"])
+	require(data, ["gain_raw","gain_correction","tag_defs","gain_mode","mce_gain"])
 	gain = data.gain_raw.copy()
 	applied = np.zeros(gain.shape,int)
 	for tag_name in data.gain_correction:
@@ -89,7 +92,21 @@ def calibrate_gain(data):
 		raise errors.DataMissing("Missing gain correction for dets [%s]" % ",".join([str(d) for d in uncorr]))
 	if len(overcorr) > 0:
 		raise errors.DataMissing("Multiple gain correction per detector for dets [%s]" % ",".join([str(d) for d in overcorr]))
+	# Apply mce filter gain if necessary
+	if data.gain_mode == "mce":
+		gain /= data.mce_gain
 	data += dataset.DataField("gain", gain, dets=data.dets, det_index=0)
+	return data
+
+def read_mce_filter(entry):
+	params, f_samp = try_read(files.read_mce_filter_params, "mce_filter", entry.tod)
+	K = 0.5**14
+	b11,b12,b21,b22,k1,k2 = np.array(params)*[K,K,K,K,1,1]
+	mce_gain = 2.**4/(1-b11+b12)/(1-b21+b22)/2**(k1+k2)
+	data = dataset.DataSet([
+		dataset.DataField("mce_fsamp",  f_samp),
+		dataset.DataField("mce_gain",   mce_gain),
+		dataset.DataField("mce_params", params)])
 	return data
 
 def read_polangle(entry):
@@ -138,7 +155,7 @@ def merge_cuts(cutinfos):
 	cuts = [ci[1][d,o:] for ci,d,o in zip(cutinfos, detinds, offrel)]
 	# And produce the cut sum
 	cut  = cuts[0]
-	for c in cuts[1:]: cut += c
+	for c in cuts[1:]: cut *= c
 	return dets, cut, offset
 
 def try_read_cut(params, desc, id):
@@ -148,7 +165,7 @@ def try_read_cut(params, desc, id):
 		messages = []
 		for param in params:
 			try:
-				return try_read_cut(param, desc)
+				return try_read_cut(param, desc, id)
 			except (IOError,zgetdata.OpenError) as e:
 				messages.append(e.message)
 		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
@@ -158,15 +175,16 @@ def try_read_cut(params, desc, id):
 		if toks[0].endswith(".hdf") or toks[0].endswith(".pdf"): params = {"type":"hdf","fname":toks[0],"flags":toks[1]}
 		else: params = {"type":"old","fname":params}
 	try:
-		if   params["type"] == "old": return files.read_cut(params["fname"])
+		if   params["type"] == "old":
+			return files.read_cut(params["fname"])
 		elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
 		elif params["type"] == "union":
-			return merge_cuts([try_read_cut(param, desc) for param in params["subs"]])
+			return merge_cuts([try_read_cut(param, desc, id) for param in params["subs"]])
 		else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
 	except IOError as e:
 		raise errors.DataMissing(desc + ": " + e.message)
 
-def read_cut(entry, names=["cut","cut_basic","cut_noiseest"], default="cut"):
+def read_cut(entry, names=["cut","cut_basic","cut_noiseest","cut_quality"], default="cut"):
 	fields = [dataset.DataField("entry",entry)]
 	for name in names:
 		if name not in entry or entry[name] is None:
@@ -356,6 +374,7 @@ def read_tod(entry, dets=None, moby=False, nthread=None):
 
 readers = {
 		"gain": read_gain,
+		"mce_filter": read_mce_filter,
 		"polangle": read_polangle,
 		"tconst": read_tconst,
 		"cut": read_cut,
@@ -378,7 +397,7 @@ readers = {
 		"tags": read_tags,
 	}
 
-default_fields = ["array_info","tags","beam","gain","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
+default_fields = ["array_info","tags","beam","gain","mce_filter","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
 def read(entry, fields=None, exclude=None, include=None, verbose=False):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
@@ -480,7 +499,8 @@ def calibrate_boresight(data):
 	# Convert angles to radians
 	if data.nsamp in [0, None]: raise errors.DataMissing("nsamp")
 	if data.nsamp < 0: raise errors.DataMissing("nsamp")
-	data.boresight[1]  = robust_unwind(data.boresight[1], period=360, cut=[0,180], tol=0.05)
+	a = data.boresight[1].copy()
+	data.boresight[1]  = robust_unwind(data.boresight[1], period=360, tol=0.1)
 	data.boresight[1:]*= np.pi/180
 	#data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
@@ -582,7 +602,7 @@ def calibrate_polangle(data):
 config.default("pad_cuts", 0, "Number of samples by which to widen each cut range by")
 def calibrate_cut(data, n=None):
 	n = config.get("pad_cuts", n)
-	for name in ["cut","cut_basic","cut_noiseest"]:
+	for name in ["cut","cut_basic","cut_noiseest","cut_quality"]:
 		if name in data:
 			data[name] = data[name].widen(n)
 	return data
@@ -745,7 +765,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	if config.get("cut_pickup", pickup) and "boresight" in d and "pickup_cut" in d:
 		addcut("pickup",cuts.pickup_cut(d.boresight[1], d.dets, d.pickup_cut))
 	if config.get("cut_mostly_cut"):
-		addcut("mostly_cut", cuts.cut_mostly_cut_detectors(d.cut))
+		addcut("mostly_cut", cuts.cut_mostly_cut_detectors(d.cut_quality))
 	if config.get("cut_obj"):
 		objs = utils.split_outside(config.get("cut_obj"),",")
 		for obj in objs:
@@ -896,6 +916,7 @@ def gapfill_helper(tod, cut):
 	method, context = config.get("gapfill"), config.get("gapfill_context")
 	gapfiller = {
 			"linear":gapfill.gapfill_linear,
+			"joneig":gapfill.gapfill_joneig,
 			}[method]
 	gapfiller(tod, cut, inplace=True, overlap=context)
 
@@ -918,18 +939,22 @@ def expand_buddies(buddies, ndet):
 			bfull[len(b):,di,:2] = b[0,:2]
 	return bfull
 
-def robust_unwind(a, period=2*np.pi, cut=[0,np.pi], tol=1e-3):
+def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3):
 	"""Like utils.unwind, but only registers something as an angle jump if
-	the values on either side of the jump are close enough to a set of angle
-	cuts (or adding N*period to them). Only 1d input is supported."""
+	it is of just the right shape. If cut is specified, it should be a list
+	of valid angle cut positions, which will further restrict when jumps are
+	allowed. Only 1d input is supported."""
 	# Find places where a jump would be acceptable
-	near_cut = np.zeros(a.size, bool)
-	for cutval in cut:
-		near_cut |= np.abs((a - cutval + period/2) % period + period/2) < tol
-	# Find places where we would naively think there is a jump
-	jumps = np.concatenate([0,np.round((a[1:]-a[:-1])/period)])
-	# Mask out jumps in illegal regions. These are just glitches.
-	jumps[~near_cut] = 0
+	period = float(period)
+	diffs  = (a[1:]-a[:-1])/period
+	valid  = np.abs(np.abs(diffs)-1) < tol/period
+	diffs *= valid
+	jumps  = np.concatenate([[0],np.round(diffs)])
+	if cut is not None:
+		near_cut = np.zeros(a.size, bool)
+		for cutval in cut:
+			near_cut |= np.abs((a - cutval + period/2) % period + period/2) < tol
+		jumps[~near_cut] = 0
 	# Then correct our values
 	return a - np.cumsum(jumps)*period
 

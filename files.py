@@ -1,6 +1,7 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py, astropy.io.fits
 from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange, sampcut
+from enact import moby_mce
 
 def read_gain(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
@@ -145,18 +146,19 @@ def read_cut(fname):
 				toks  = parts[1].split()
 				ranges = np.array([[int(w) for w in tok[1:-1].split(",")] for tok in toks])
 				ranges = np.minimum(ranges, nsamp)
+				cuts.append(sampcut.from_list([ranges],nsamp))
 			# Handle uncut detectors
 			else:
-				ranges = np.zeros([0,2],dtype=int)
+				cuts.append(sampcut.empty(1, nsamp))
 			dets.append(uid)
-			cuts.append(sampcut.from_list([ranges],nsamp))
 	# Filter out fully cut tods
 	odets, ocuts = [], []
 	for det, cut in zip(dets, cuts):
 		if cut.sum() < cut.nsamp:
 			odets.append(det)
 			ocuts.append(cut)
-	ocuts = sampcut.stack(ocuts)
+	if len(ocuts) == 0: ocuts = sampcut.full(0,nsamp)
+	else: ocuts = sampcut.stack(ocuts)
 	return odets, ocuts, offset
 
 def read_cut_hdf(fname, id, flags):
@@ -464,3 +466,7 @@ def read_pylike_format(fname):
 			if v == "'nan'": res[id][i] = np.nan
 			elif v == "nan": res[id][i] = np.nan
 	return res
+
+def read_mce_filter_params(fname):
+	mce_filter = moby_mce.MCERunfile.from_dirfile(fname).ReadoutFilter()
+	return mce_filter.params, mce_filter.f_samp
