@@ -9,7 +9,7 @@ config.default("noise_model", "jon", "Which noise model to use. Can be 'file' or
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False, dark=False):
-		self.fields = ["gain","tags","polangle","tconst","hwp","cut","point_offsets","boresight","site","tod_shape","array_info","beam","pointsrcs", "buddies"]
+		self.fields = ["gain","mce_filter","tags","polangle","tconst","hwp","cut","point_offsets","boresight","site","tod_shape","array_info","beam","pointsrcs", "buddies"]
 		if dark: self.fields += ["dark"]
 		if config.get("noise_model") == "file":
 			self.fields += ["noise"]

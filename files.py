@@ -8,7 +8,15 @@ def read_gain(fname):
 	data = read_pylike_format(fname)
 	return np.array(data["det_uid"]), np.array(data["cal"])
 
-def read_gain_correction(fname, id=None):
+def read_gain_correction(fname, id=None, mode="auto"):
+	if mode == "hdf" or mode == "auto" and (
+			fname.endswith(".hdf") or fname.endswith(".h5") or
+			".hdf/" in fname or ".h5/" in fname):
+		return read_gain_correction_hdf(fname, id=id)
+	else:
+		return read_gain_correction_ascii(fname, id=id)
+
+def read_gain_correction_ascii(fname, id=None):
 	"""Read lines of the format id[:tag] val or id tag val. Returns it as a dict
 	of {id: {tag:val,...}}. So a single TOD may be covered by multiple
 	entries in the file, each of which covers a different subset.
@@ -30,6 +38,22 @@ def read_gain_correction(fname, id=None):
 		# And insert it at the right location
 		if tod_id not in res: res[tod_id] = {}
 		res[tod_id][tag] = value
+	return res
+
+def read_gain_correction_hdf(fname, id=None):
+	dataset = None
+	for ext in [".hdf/",".h5/"]:
+		if ext in fname:
+			ftoks = fname.split(ext)
+			fname, dataset = ext.join(ftoks[:-1])+ext[:-1], ftoks[-1]
+	if dataset is None: raise errors.DataMissing("No dataset specified in read_gain_correction_hdf")
+	res = {}
+	with h5py.File(fname, "r") as hfile:
+		data = hfile[dataset].value
+		if id: data = data[data["tod_id"]==id]
+		for tod_id, tag, value in data:
+			if tod_id not in res: res[tod_id] = {}
+			res[tod_id][tag] = value
 	return res
 
 #def read_gain_correction(fname, id=None):

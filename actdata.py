@@ -94,7 +94,7 @@ def calibrate_gain(data):
 		raise errors.DataMissing("Multiple gain correction per detector for dets [%s]" % ",".join([str(d) for d in overcorr]))
 	# Apply mce filter gain if necessary
 	if data.gain_mode == "mce":
-		gain /= data.mce_gain
+		gain /= data.mce_gain/1217.8583043
 	data += dataset.DataField("gain", gain, dets=data.dets, det_index=0)
 	return data
 
