@@ -3,10 +3,31 @@ import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py, astropy.io.
 from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange, sampcut
 from enact import moby_mce
 
-def read_gain(fname):
+def read_gain(fname, id=None, mode="auto"):
+	if mode == "hdf" or mode == "auto" and re.search(r"\.(hdf|h5)\b",fname):
+		return read_gain_hdf(fname, id=id)
+	else:
+		return read_gain_pylike(fname)
+
+def read_gain_pylike(fname):
 	"""Reads per-detector gain values from file, returning id,val."""
 	data = read_pylike_format(fname)
 	return np.array(data["det_uid"]), np.array(data["cal"])
+
+def read_gain_hdf(fname, id=None):
+	dataset = None
+	# Allow us to specify the dataset name as an extra path element
+	for ext in [".hdf/",".h5/"]:
+		if ext in fname:
+			ftoks = fname.split(ext)
+			fname, dataset = ext.join(ftoks[:-1])+ext[:-1], ftoks[-1]
+	if dataset is None and id is None: raise errors.DataMissing("No tod id specified in read_gain_hdf")
+	res = {}
+	with h5py.File(fname, "r") as hfile:
+		if dataset is not None: hfile = hfile[dataset]
+		if id is not None: hfile = hfile[id]
+		data = hfile.value
+		return data["det_uid"], data["cal"]
 
 def read_gain_correction(fname, id=None, mode="auto"):
 	if mode == "hdf" or mode == "auto" and (
