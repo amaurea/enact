@@ -47,7 +47,7 @@ def setup_filedb():
 	if override is "none": override = None
 	es = []
 	try:
-		return execdb.ExecDB(cjoin(["root","dataset","filedb"]), cjoin(["root","filevars"]), override=override)
+		return execdb.ExecDB(cjoin(["root","dataset","filedb"]), cjoin(["root","filevars"]), override=override, root=cjoin(["root"]))
 	except Exception as e: es.append(e)
 	try:
 		return filedb.FormatDB(file=cjoin(["root","dataset","filedb"]),
