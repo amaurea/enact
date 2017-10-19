@@ -28,58 +28,65 @@ from enlib import nmat, utils, array_ops, fft, errors, config, gapfill
 # to numpy's ffts, this means dividing the fourier
 # array by sqrt(n).
 
+
 # Our main noise model
 config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
 config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
+config.default("nmat_spike_suppression", 1e-2, "How much to suppress spikes by. This multiplies the uncorrelated noise in those bins")
 
 def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None, cut_unit="freq", verbose=False):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
 	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
 	srate is the sampling rate, dets is the list of detectors, shared specifies
 	whether the Detvecs object should use the compressed "shared" layout or not",
-	and cut_bins is a [nbin,{freq_from,freq_2}] array of frequencies
+	and cut_freq_ranges is a [nbin,{freq_from,freq_2}] array of frequencies
 	to completely cut."""
 	apodization = config.get("nmat_jon_apod", apodization) or None
 	downweight  = config.get("nmat_jon_downweight")
+	spike_suppression = config.get("nmat_spike_suppression")
 	nfreq    = ft.shape[1]
 	if cut_unit == "freq":
-		cut_bins = freq2ind(cut_bins, srate, nfreq)
-	mask     = bins2mask(cut_bins, nfreq)
+		cut_bins = freq2ind(cut_bins, srate, nfreq, rfun=np.round)
 	# Construct our mode bins. Interestingly, we skip
 	# the f < 0.25 Hz area.
-	mbins = makebins([0.25, 4.0], srate, nfreq, 1000)[1:]
+	mbins = makebins([0.25, 4.0], srate, nfreq, 1000, rfun=np.round)[1:]
 	amp_thresholds = extend_list([6**2,5**2], len(mbins))
 	single_threshold = 0.55
 	# Ok, compute our modes, and then measure them in each bin.
 	# When using apodization, the vecs are not necessarily orthogonal,
 	# so don't rely on that.
-	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask, apodization=apodization, verbose=verbose)
+	verbose=True
+	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, apodization=apodization, verbose=verbose)
 	bin_edges = np.array([
 			0.10, 0.25, 0.35, 0.45, 0.55, 0.70, 0.85, 1.00,
-			1.20, 1.40, 1.70, 2.00, 2.40, 2.80, 3.40, 4.00,
-			4.80, 5.60, 6.30, 7.00, 8.00, 9.00, 10.0, 11.0,
-			12.0, 13.0, 14.0, 15.0, 16.0, 18.0, 20.0, 22.0,
-			24.0, 26.0, 28.0, 30.0, 32.0, 35.0, 38.0, 41.0,
-			45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 80.0, 90.0,
+			1.20, 1.40, 1.70, 2.00, 2.40, 2.80, 3.40, 3.80,
+			4.60, 5.00, 5.50, 6.00, 6.50, 7.00, 8.00, 9.00, 10.0, 11.0,
+			12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0,
+			24.0, 26.0, 28.0, 30.0, 32.0, 36.5, 41.0,
+			45.0, 50.0, 55.0, 65.0, 70.0, 80.0, 90.0,
 			100., 110., 120., 130., 140., 150., 160., 170.,
 			180., 190.
 		])
 	# Cut bins that extend beyond our max frequency
 	bin_edges = bin_edges[bin_edges < srate/2 * 0.99]
 	bins = makebins(bin_edges, srate, nfreq, 2*vecs.shape[1], rfun=np.round)
+	bins, iscut = add_cut_bins(bins, cut_bins)
 
 	if downweight: white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
 	else: white_scale = [1]*len(bins)
+	white_scale = np.asarray(white_scale)
+	white_scale[iscut] *= spike_suppression
+
 	if vecs.size == 0: raise errors.ModelError("Could not find any noise modes")
 	# Sharedvecs supports different sets of vecs per bin. But we only
 	# use a single group here. So every bin refers to the first group.
 	V     = [vecs]
 	vinds = np.zeros(len(bins),dtype=int)
-	Nu, Nd, E = measure_detvecs_bin(ft, bins, vecs, mask, weights)
+	Nu, Nd, E = measure_detvecs_bin(ft, bins, vecs, mask=None, weights=weights)
+
 	# Apply white noise scaling
-	Nu /= np.array(white_scale)[:,None]
-	if cut_bins is not None:
-		bins, E, V, Nu, vinds = apply_bin_cuts(bins, cut_bins, E, V, Nu, vinds)
+	Nu /= white_scale[:,None]
+
 	if shared:
 		res = prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds)
 	else:
@@ -88,15 +95,85 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 		res = prepare_detvecs(Nu, V, E, bins, srate, dets)
 	return res
 
-def measure_detvecs_bin(ft, bins, vecs, mask, weights=None):
+## Our main noise model
+#config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
+#config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
+#
+#def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None, cut_unit="freq", verbose=False):
+#	"""Build a Detvecs noise matrix based on Jon's noise model.
+#	ft is the *normalized* fourier-transform of a TOD: ft = fft.rfft(d)/nsamp.
+#	srate is the sampling rate, dets is the list of detectors, shared specifies
+#	whether the Detvecs object should use the compressed "shared" layout or not",
+#	and cut_bins is a [nbin,{freq_from,freq_2}] array of frequencies
+#	to completely cut."""
+#	apodization = config.get("nmat_jon_apod", apodization) or None
+#	downweight  = config.get("nmat_jon_downweight")
+#	nfreq    = ft.shape[1]
+#	if cut_unit == "freq":
+#		cut_bins = freq2ind(cut_bins, srate, nfreq)
+#	mask     = bins2mask(cut_bins, nfreq)
+#	# Construct our mode bins. Interestingly, we skip
+#	# the f < 0.25 Hz area.
+#	mbins = makebins([0.25, 4.0], srate, nfreq, 1000)[1:]
+#	amp_thresholds = extend_list([6**2,5**2], len(mbins))
+#	single_threshold = 0.55
+#	# Ok, compute our modes, and then measure them in each bin.
+#	# When using apodization, the vecs are not necessarily orthogonal,
+#	# so don't rely on that.
+#	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, mask=mask, apodization=apodization, verbose=verbose)
+#	bin_edges = np.array([
+#			0.10, 0.25, 0.35, 0.45, 0.55, 0.70, 0.85, 1.00,
+#			1.20, 1.40, 1.70, 2.00, 2.40, 2.80, 3.40, 4.00,
+#			4.80, 5.60, 6.30, 7.00, 8.00, 9.00, 10.0, 11.0,
+#			12.0, 13.0, 14.0, 15.0, 16.0, 18.0, 20.0, 22.0,
+#			24.0, 26.0, 28.0, 30.0, 32.0, 35.0, 38.0, 41.0,
+#			45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 80.0, 90.0,
+#			100., 110., 120., 130., 140., 150., 160., 170.,
+#			180., 190.
+#		])
+#	# Cut bins that extend beyond our max frequency
+#	bin_edges = bin_edges[bin_edges < srate/2 * 0.99]
+#	bins = makebins(bin_edges, srate, nfreq, 2*vecs.shape[1], rfun=np.round)
+#
+#	if downweight: white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
+#	else: white_scale = [1]*len(bins)
+#	if vecs.size == 0: raise errors.ModelError("Could not find any noise modes")
+#	# Sharedvecs supports different sets of vecs per bin. But we only
+#	# use a single group here. So every bin refers to the first group.
+#	V     = [vecs]
+#	vinds = np.zeros(len(bins),dtype=int)
+#	Nu, Nd, E = measure_detvecs_bin(ft, bins, vecs, mask, weights)
+#	# Apply white noise scaling
+#	Nu /= np.array(white_scale)[:,None]
+#	if cut_bins is not None:
+#		bins, E, V, Nu, vinds = apply_bin_cuts(bins, cut_bins, E, V, Nu, vinds)
+#	if shared:
+#		res = prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds)
+#	else:
+#		# Expand V so we have one block of vectors per bin
+#		V = [V[i] for i in vinds]
+#		res = prepare_detvecs(Nu, V, E, bins, srate, dets)
+#	return res
+
+def add_cut_bins(bins, cut_bins):
+	uncut_bins, rmap, abmap = utils.range_sub(bins, cut_bins, mapping=True)
+	res, iscut = [], []
+	for i in abmap:
+		if i >= 0: res.append(uncut_bins[i])
+		else:      res.append(cut_bins[-i-1])
+		iscut.append(i<0)
+	return np.asarray(res), np.asarray(iscut)
+
+def measure_detvecs_bin(ft, bins, vecs, mask=None, weights=None):
 	Nu, Nd, E = [], [], []
 	for bi, b in enumerate(bins):
 		b = np.maximum(1,b)
 		# Set up modes to use
-		dm = mask[b[0]:b[1]]
 		d  = ft[:,b[0]:b[1]]
-		# Apply mask unless it would mask all modes
-		if np.any(dm): d = d[:,dm]
+		if mask is not None:
+			# Apply mask unless it would mask all modes
+			dm = mask[b[0]:b[1]]
+			if np.any(dm): d = d[:,dm]
 		# Measure amps when we have non-orthogonal vecs
 		rhs  = vecs.T.dot(d)
 		div  = vecs.T.dot(vecs)

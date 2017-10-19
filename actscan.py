@@ -4,6 +4,7 @@ from enlib import utils, scan, nmat, resample, config, errors, bench
 
 config.default("cut_noise_whiteness", False, "Whether to apply the noise_cut or not")
 config.default("cut_spikes", True, "Whether to apply the spike cut or not")
+config.default("tod_sys", "hor", "Coordinate system the TOD is in. 'hor': Ideal horizontal coordinates. 'tele': non-ideal telescope coordinates.")
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 config.default("noise_model", "jon", "Which noise model to use. Can be 'file' or 'jon'")
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
@@ -42,7 +43,7 @@ class ACTScan(scan.Scan):
 		self.dets  = d.dets
 		self.dgrid = (d.array_info.nrow, d.array_info.ncol)
 		self.array_info = d.array_info
-		self.sys = "hor"
+		self.sys = config.get("tod_sys")
 		self.site = d.site
 		if "noise" in d:
 			self.noise = d.noise

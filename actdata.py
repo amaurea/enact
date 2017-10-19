@@ -603,9 +603,9 @@ def calibrate_polangle(data):
 	data += dataset.DataField("det_comps", det_comps, dets=data.dets, det_index=0)
 	return data
 
-config.default("pad_cuts", 0, "Number of samples by which to widen each cut range by")
+config.default("pad_cuts", "0:0", "Number of samples by which to widen each cut range by")
 def calibrate_cut(data, n=None):
-	n = config.get("pad_cuts", n)
+	n = [int(w) for w in config.get("pad_cuts", n).split(":")]
 	for name in ["cut","cut_basic","cut_noiseest","cut_quality"]:
 		if name in data:
 			data[name] = data[name].widen(n)
