@@ -1,6 +1,6 @@
 import numpy as np, time, os, multiprocessing
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, zgetdata, pointsrcs, todops, bunch, bench, sampcut
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut
 from enact import files, cuts, filters
 
 def expand_file_params(params, top=True):
@@ -29,7 +29,7 @@ def try_read(method, desc, params, *args, **kwargs):
 		kwargs2.update(param)
 		del kwargs2["fname"]
 		try: return method(param["fname"], *args, **kwargs2)
-		except (IOError,zgetdata.OpenError) as e: pass
+		except IOError as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def get_dict_wild(d, key, default=None):
@@ -52,7 +52,7 @@ def try_read_dict(method, desc, params, key, *args, **kwargs):
 		try:
 			dict = method(param["fname"], *args, **kwargs2)
 			return get_dict_wild(dict, key)
-		except (IOError,zgetdata.OpenError, KeyError) as e: pass
+		except (IOError, KeyError) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def read_gain(entry):
@@ -170,7 +170,7 @@ def try_read_cut(params, desc, id):
 		for param in params:
 			try:
 				return try_read_cut(param, desc, id)
-			except (IOError,zgetdata.OpenError) as e:
+			except IOError as e:
 				messages.append(e.message)
 		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
 	# Convenience transformations, to make things a bit more readable in the parameter files
