@@ -1,6 +1,6 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py, astropy.io.fits
-from enlib import pyactgetdata, zgetdata, bunch, utils, flagrange, sampcut
+from enlib import pyactgetdata, bunch, utils, flagrange, sampcut
 from enact import moby_mce
 
 def read_gain(fname, id=None, mode="auto"):
@@ -412,10 +412,11 @@ def read_hwp_cleaned(fname, mode="auto"):
 	# Try Marius format
 	if mode == "marius" or mode == "auto":
 		try:
+			import zgetdata
 			with zgetdata.dirfile(fname) as dfile:
 				nsamp = dfile.eof('hwp_angle_fit')
 				return dfile.getdata("hwp_angle_fit", zgetdata.FLOAT32, num_samples=nsamp)
-		except zgetdata.BadCodeError:
+		except (zgetdata.BadCodeError, zgetdata.OpenError):
 			if mode == "marius": raise errors.DataMissing("File %s is not in marius format" % fname)
 	# Try the other format
 	with pyactgetdata.dirfile(fname) as dfile:

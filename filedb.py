@@ -60,5 +60,5 @@ def cjoin(names): return os.path.join(*[config.get(n) for n in names])
 
 def init():
 	global scans, data
-	scans = todinfo.read(cjoin(["root","dataset","todinfo"]))
+	scans = todinfo.read(cjoin(["root","dataset","todinfo"]), vars={"root":cjoin(["root"])})
 	data  = setup_filedb()
