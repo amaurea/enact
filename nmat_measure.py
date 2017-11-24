@@ -55,7 +55,6 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	# Ok, compute our modes, and then measure them in each bin.
 	# When using apodization, the vecs are not necessarily orthogonal,
 	# so don't rely on that.
-	verbose=True
 	vecs, weights = find_modes_jon(ft, mbins, amp_thresholds, single_threshold, apodization=apodization, verbose=verbose)
 	bin_edges = np.array([
 			0.10, 0.25, 0.35, 0.45, 0.55, 0.70, 0.85, 1.00,
@@ -156,6 +155,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 #	return res
 
 def add_cut_bins(bins, cut_bins):
+	if cut_bins is None: return np.array(bins), np.full(len(bins),False,bool)
 	uncut_bins, rmap, abmap = utils.range_sub(bins, cut_bins, mapping=True)
 	res, iscut = [], []
 	for i in abmap:

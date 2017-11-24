@@ -508,8 +508,9 @@ def calibrate_boresight(data):
 	data.boresight[1:]*= np.pi/180
 	#data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
-	bad_flag = (data.flags!=0)*(data.flags!=0x10)
-	bad_value= find_boresight_jumps(data.boresight)
+	bad_flag   = (data.flags!=0)*(data.flags!=0x10)
+	bad_value  = find_boresight_jumps(data.boresight)
+	bad_value |= find_elevation_outliers(data.boresight[2])
 	bad = bad_flag | bad_value
 	#bad += srate_mask(data.boresight[0])
 	# Interpolate through bad regions. For long regions, this won't
@@ -914,7 +915,11 @@ def find_boresight_jumps(bore, width=20, tol=[1.00,0.03,0.03]):
 		bad |= np.abs(b-fb) > tol[i]
 	return bad
 
-config.default("gapfill", "linear", "TOD gapfill method. Can be 'copy', 'linear' or 'cubic'")
+def find_elevation_outliers(el, tol=0.5*utils.degree):
+	typ = np.median(el[::100])
+	return np.abs(el-typ)>tol
+
+config.default("gapfill", "joneig", "TOD gapfill method. Can be 'copy', 'linear' or 'cubic'")
 config.default("gapfill_context", 10, "Samples of context to use for matching up edges of cuts.")
 def gapfill_helper(tod, cut):
 	method, context = config.get("gapfill"), config.get("gapfill_context")

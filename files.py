@@ -1,6 +1,6 @@
 """This module provides low-level access to the actpol TOD metadata files."""
 import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py, astropy.io.fits
-from enlib import pyactgetdata, bunch, utils, flagrange, sampcut
+from enlib import pyactgetdata, bunch, utils, flagrange, sampcut, errors
 from enact import moby_mce
 
 def read_gain(fname, id=None, mode="auto"):
@@ -23,11 +23,13 @@ def read_gain_hdf(fname, id=None):
 			fname, dataset = ext.join(ftoks[:-1])+ext[:-1], ftoks[-1]
 	if dataset is None and id is None: raise errors.DataMissing("No tod id specified in read_gain_hdf")
 	res = {}
-	with h5py.File(fname, "r") as hfile:
-		if dataset is not None: hfile = hfile[dataset]
-		if id is not None: hfile = hfile[id]
-		data = hfile.value
-		return data["det_uid"], data["cal"]
+	try:
+		with h5py.File(fname, "r") as hfile:
+			if dataset is not None: hfile = hfile[dataset]
+			if id is not None: hfile = hfile[id]
+			return hfile["det_uid"].value, hfile["cal"].value
+	except KeyError:
+		raise errors.DataMissing("Missing gain in file '%s'" % fname)
 
 def read_gain_correction(fname, id=None, mode="auto"):
 	if mode == "hdf" or mode == "auto" and (
@@ -210,9 +212,12 @@ def read_cut_hdf(fname, id, flags):
 	"""Reads cuts in the new hdf format. This format has multiple tods per
 	file, so the tod id must be specified. It also lets one specify various
 	flags to construct the actual cuts from, such as planet cuts, glitch cuts, etc."""
-	frange = flagrange.read_flagrange(fname, id)
-	frange = frange.select(flags)
-	cuts   = frange.to_sampcut()
+	try:
+		frange = flagrange.read_flagrange(fname, id)
+		frange = frange.select(flags)
+		cuts   = frange.to_sampcut()
+	except KeyError:
+		raise errors.DataMissing("No cuts for %s present" % id)
 	return frange.dets, cuts, frange.sample_offset
 
 def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
