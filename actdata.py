@@ -279,28 +279,44 @@ def read_hwp(entry):
 	if ar not in epochs: return dummy
 	for epoch in epochs[ar]:
 		if t >= epoch[0] and t < epoch[1]:
-			# Ok, the HWP was active during this period. So our data is missing
-			# if we can't read it.
-			try:
-				status = try_read(files.read_hwp_status, "hwp_status", entry.hwp_status)
-			except errors.DataMissing as e:
-				status = None
-			#if status is None or entry.id not in status or get_dict_wild(status, entry.id) != 1:
-			if status is None or get_dict_wild(status, entry.id, 0) != 1:
-				if config.get("hwp_fallback") == "raw":
-					hwp = try_read(files.read_hwp_raw, "hwp_raw_angles", entry.tod)
-					return dataset.DataSet([
-						dataset.DataField("hwp", hwp, samples=[0, hwp.size], sample_index=0),
-						dataset.DataField("hwp_id", epoch[2]),
-						dataset.DataField("hwp_source", "raw")])
-				else:
-					raise e if status is None else errors.DataMissing("Missing HWP angles!")
-			# Try to read the angles themselves
-			hwp = try_read(files.read_hwp_cleaned, "hwp_angles", entry.hwp)
-			return dataset.DataSet([
-				dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0),
-				dataset.DataField("hwp_id", epoch[2]),
-				dataset.DataField("hwp_source","cleaned")])
+			# Ok, the HWP was active during this period. Try to read it. It can be in
+			# several different formats.
+			if   entry.hwp_format == "tod":
+				# HWP angles in the tod, in the new, high-quality format
+				hwp, flags = try_read(files.read_hwp_angle, "hwp_tod_angles", entry.tod)
+				return dataset.DataSet([
+					dataset.DataField("hwp", hwp, samples=[0, hwp.size], sample_index=0),
+					dataset.DataField("hwp_id", epoch[2]),
+					dataset.DataField("hwp_source", "tod")])
+			elif entry.hwp_format == "raw":
+				# HWP angles in the tod, in the old, inaccurate format
+				hwp = try_read(files.read_hwp_raw, "hwp_raw_angles", entry.tod)
+				return dataset.DataSet([
+					dataset.DataField("hwp", hwp, samples=[0, hwp.size], sample_index=0),
+					dataset.DataField("hwp_id", epoch[2]),
+					dataset.DataField("hwp_source", "raw")])
+			elif entry.hwp_format == "external":
+				# HWP angles in external data files
+				try:
+					status = try_read(files.read_hwp_status, "hwp_status", entry.hwp_status)
+				except errors.DataMissing as e:
+					status = None
+				# If there weren't any external files, possibly fall back to raw angles
+				if status is None or get_dict_wild(status, entry.id, 0) != 1:
+					if config.get("hwp_fallback") == "raw":
+						hwp = try_read(files.read_hwp_raw, "hwp_raw_angles", entry.tod)
+						return dataset.DataSet([
+							dataset.DataField("hwp", hwp, samples=[0, hwp.size], sample_index=0),
+							dataset.DataField("hwp_id", epoch[2]),
+							dataset.DataField("hwp_source", "raw")])
+					else:
+						raise e if status is None else errors.DataMissing("Missing HWP angles!")
+				# Try to read the angles themselves
+				hwp = try_read(files.read_hwp_cleaned, "hwp_angles", entry.hwp)
+				return dataset.DataSet([
+					dataset.DataField("hwp", hwp, samples=[0,hwp.size], sample_index=0),
+					dataset.DataField("hwp_id", epoch[2]),
+					dataset.DataField("hwp_source","cleaned")])
 	# Not in any epoch, so return 0 hwp angle (which effectively turns it off)
 	return dummy
 

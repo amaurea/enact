@@ -344,6 +344,18 @@ def read_boresight_moby(fname):
 	tod = moby2.scripting.get_tod({'filename': fname, 'det_uid':[],'read_data':False})
 	return np.array([tod.ctime, tod.az*180/np.pi, tod.alt*180/np.pi]), tod.enc_flags
 
+def read_hwp_angle(fname):
+	"""Given a filename or a dirfile, reads the half-wave-plate angle in degrees,
+	which will be the same length as the tod. Also returns an equal-length array
+	of hwp_flags. This is the current standard method
+	for reading hwp data as of s17. Older seasons used the various functions below."""
+	if isinstance(fname, basestring):
+		with pyactgetdata.dirfile(fname) as dfile:
+			return dfile.getdata("hwp_angle"), dfile.getdata("hwp_flags")
+	else:
+		return fname.getdata("hwp_angle"), fname.getdata("hwp_flags")
+
+
 def read_hwp_raw(fname):
 	"""Given a filename or a dirfile, reads the half-wave-plate angle. May
 	move this into read_boresight later, as it belongs with the other fields
@@ -376,7 +388,7 @@ def read_hwp_status(fname):
 
 def read_hwp_epochs(fname):
 	res = {}
-	amap = {"PA1": "ar1", "PA2": "ar2", "PA3": "ar3"}
+	amap = {"PA%d"%i: "ar%d"%i for i in range(10)}
 	with open(fname, "r") as f:
 		for line in f:
 			pa, name, t1, t2 = line.split()[:4]
