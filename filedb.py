@@ -45,20 +45,11 @@ def setup_filedb():
 	format of the fildb file."""
 	override= config.get("file_override")
 	if override is "none": override = None
-	es = []
-	try:
-		return execdb.ExecDB(cjoin(["root","dataset","filedb"]), cjoin(["root","filevars"]), override=override)
-	except Exception as e: es.append(e)
-	try:
-		return filedb.FormatDB(file=cjoin(["root","dataset","filedb"]),
-				funcs=extractors, override=override)
-	except Exception as e:
-		es.append(e)
-		raise IOError("Could not initialize filedb: " + "; ".join([e.message for e in es]))
+	return execdb.ExecDB(cjoin(["root","dataset","filedb"]), cjoin(["root","filevars"]), override=override, root=cjoin(["root"]))
 
 def cjoin(names): return os.path.join(*[config.get(n) for n in names])
 
 def init():
 	global scans, data
-	scans = todinfo.read(cjoin(["root","dataset","todinfo"]))
+	scans = todinfo.read(cjoin(["root","dataset","todinfo"]), vars={"root":cjoin(["root"])})
 	data  = setup_filedb()

@@ -1,6 +1,6 @@
 import numpy as np, time, os, multiprocessing
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, zgetdata, pointsrcs, todops, bunch, bench, sampcut
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut
 from enact import files, cuts, filters
 
 def expand_file_params(params, top=True):
@@ -29,7 +29,7 @@ def try_read(method, desc, params, *args, **kwargs):
 		kwargs2.update(param)
 		del kwargs2["fname"]
 		try: return method(param["fname"], *args, **kwargs2)
-		except (IOError,zgetdata.OpenError) as e: pass
+		except IOError as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def get_dict_wild(d, key, default=None):
@@ -52,7 +52,7 @@ def try_read_dict(method, desc, params, key, *args, **kwargs):
 		try:
 			dict = method(param["fname"], *args, **kwargs2)
 			return get_dict_wild(dict, key)
-		except (IOError,zgetdata.OpenError, KeyError) as e: pass
+		except (IOError, KeyError) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def read_gain(entry):
@@ -94,7 +94,11 @@ def calibrate_gain(data):
 		raise errors.DataMissing("Multiple gain correction per detector for dets [%s]" % ",".join([str(d) for d in overcorr]))
 	# Apply mce filter gain if necessary
 	if data.gain_mode == "mce":
+		gain /= float(data.mce_gain)
+	elif data.gain_mode == "mce_compat":
 		gain /= data.mce_gain/1217.8583043
+	elif data.gain_mode == "direct": pass
+	else: raise ValueError("Unrecognized gain_mode '%s'" % data.gain_mode)
 	data += dataset.DataField("gain", gain, dets=data.dets, det_index=0)
 	return data
 
@@ -166,7 +170,7 @@ def try_read_cut(params, desc, id):
 		for param in params:
 			try:
 				return try_read_cut(param, desc, id)
-			except (IOError,zgetdata.OpenError) as e:
+			except IOError as e:
 				messages.append(e.message)
 		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
 	# Convenience transformations, to make things a bit more readable in the parameter files
@@ -520,8 +524,9 @@ def calibrate_boresight(data):
 	data.boresight[1:]*= np.pi/180
 	#data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
-	bad_flag = (data.flags!=0)*(data.flags!=0x10)
-	bad_value= find_boresight_jumps(data.boresight)
+	bad_flag   = (data.flags!=0)*(data.flags!=0x10)
+	bad_value  = find_boresight_jumps(data.boresight)
+	bad_value |= find_elevation_outliers(data.boresight[2])
 	bad = bad_flag | bad_value
 	#bad += srate_mask(data.boresight[0])
 	# Interpolate through bad regions. For long regions, this won't
@@ -615,9 +620,9 @@ def calibrate_polangle(data):
 	data += dataset.DataField("det_comps", det_comps, dets=data.dets, det_index=0)
 	return data
 
-config.default("pad_cuts", 0, "Number of samples by which to widen each cut range by")
+config.default("pad_cuts", "0:0", "Number of samples by which to widen each cut range by")
 def calibrate_cut(data, n=None):
-	n = config.get("pad_cuts", n)
+	n = [int(w) for w in config.get("pad_cuts", n).split(":")]
 	for name in ["cut","cut_basic","cut_noiseest","cut_quality"]:
 		if name in data:
 			data[name] = data[name].widen(n)
@@ -926,7 +931,11 @@ def find_boresight_jumps(bore, width=20, tol=[1.00,0.03,0.03]):
 		bad |= np.abs(b-fb) > tol[i]
 	return bad
 
-config.default("gapfill", "linear", "TOD gapfill method. Can be 'copy', 'linear' or 'cubic'")
+def find_elevation_outliers(el, tol=0.5*utils.degree):
+	typ = np.median(el[::100])
+	return np.abs(el-typ)>tol
+
+config.default("gapfill", "joneig", "TOD gapfill method. Can be 'copy', 'linear' or 'cubic'")
 config.default("gapfill_context", 10, "Samples of context to use for matching up edges of cuts.")
 def gapfill_helper(tod, cut):
 	method, context = config.get("gapfill"), config.get("gapfill_context")

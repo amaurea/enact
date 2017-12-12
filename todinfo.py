@@ -52,10 +52,10 @@ class Todinfo(tagdb.Tagdb):
 		return "\n".join(lines)
 	def __str__(self): return self.__repr__(100)
 	@classmethod
-	def read_txt(cls, fname):
+	def read_txt(cls, fname, vars={}):
 		"""Read a Tagdb from text files, supporting Loic's selelected tod format"""
 		datas = []
-		for subfile, tags in tagdb.parse_tagfile_top(fname):
+		for subfile, tags in tagdb.parse_tagfile_top(fname, vars=vars):
 			data = parse_tagfile_loic(subfile)
 			for tag in tags:
 				data[tag] = np.full(len(data["id"]), True, dtype=bool)
@@ -92,8 +92,8 @@ def parse_tagfile_loic(fname):
 	sel = np.asarray(sel)
 	return {"id":ids, "sel":sel}
 
-def read(fname, type=None):
-	return Todinfo.read(fname, type)
+def read(fname, type=None, vars={}):
+	return Todinfo.read(fname, type, vars=vars)
 
 # Functions that can be used in todinfo queries
 # Coordinate order is ra,dec
