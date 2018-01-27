@@ -1,5 +1,5 @@
 """This module provides low-level access to the actpol TOD metadata files."""
-import ast, numpy as np, enlib.rangelist, re, multiprocessing, h5py, astropy.io.fits
+import ast, numpy as np, enlib.rangelist, re, h5py, astropy.io.fits
 from enlib import pyactgetdata, bunch, utils, flagrange, sampcut, errors
 from enact import moby_mce
 
@@ -304,27 +304,11 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_on
 		ids = np.asarray(ids)
 		return ids
 	def read(dfile, rowcol):
-		global read_tod_single_dfile
-		reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
-		nsamp = len(dfile.getdata("tesdatar%02dc%02d" % tuple(reference)))
-		if shape_only: return nsamp
-		res   = np.empty([rowcol.shape[1],nsamp],dtype=np.int32)
-		if nthread == 1:
-			for i, (r,c) in enumerate(rowcol.T):
-				# The 7 lowest bits are status flags
-				res[i] = dfile.getdata("tesdatar%02dc%02d" % (r,c))
+		if shape_only:
+			reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
+			return len(dfile.getdata("tesdatar%02dc%02d" % tuple(reference)))
 		else:
-			# Read in parallel, since there is a significant CPU cost to reading.
-			# However, only do that when we use more than 1 proc, since this
-			# parallelization has some over head (about 10%).
-			def collect(args): res[args[0]] = args[1]
-			read_tod_single_dfile = dfile
-			pool = multiprocessing.Pool(nthread)
-			for i, (r,c) in enumerate(rowcol.T):
-				pool.apply_async(read_tod_single_helper, args=(i,r,c), callback=collect)
-			pool.close()
-			pool.join()
-		return res
+			return dfile.getdata_multi(["tesdatar%02dc%02d" % (r,c) for (r,c) in rowcol.T])
 	if isinstance(fname, basestring):
 		with pyactgetdata.dirfile(fname) as dfile:
 			ids = get_ids(dfile, ids, ndet, mapping)
@@ -335,13 +319,6 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_on
 		ids = get_ids(dfile, ids, ndet, mapping)
 		rowcol = np.asarray(mapping(ids))
 		return ids, read(dfile, rowcol)
-
-# Helpers for parallel tod read
-read_tod_single_dfile = None
-def read_tod_single_helper(i, r, c):
-	global read_tod_single_dfile
-	# The 7 lowest bits are status flags
-	return (i, read_tod_single_dfile.getdata("tesdatar%02dc%02d" % (r,c)))
 
 def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
 	import moby2

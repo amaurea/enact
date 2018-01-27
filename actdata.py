@@ -536,6 +536,7 @@ def calibrate_boresight(data):
 	#  3. Handle it in the autocuts.
 	# The latter is cleaner in my opinion
 	cut = sampcut.from_mask(bad)
+	read_tod(data.entry)
 	gapfill.gapfill_linear(data.boresight, cut, inplace=True)
 	srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 	data += dataset.DataField("srate", srate)
