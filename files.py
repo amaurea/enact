@@ -14,6 +14,10 @@ def read_gain_pylike(fname):
 	data = read_pylike_format(fname)
 	return np.array(data["det_uid"]), np.array(data["cal"])
 
+def hdf_wild(hfile, key):
+	try:             return hfile[key]
+	except KeyError: return hfile["*"]
+
 def read_gain_hdf(fname, id=None):
 	dataset = None
 	# Allow us to specify the dataset name as an extra path element
@@ -22,12 +26,12 @@ def read_gain_hdf(fname, id=None):
 			ftoks = fname.split(ext)
 			fname, dataset = ext.join(ftoks[:-1])+ext[:-1], ftoks[-1]
 	if dataset is None and id is None: raise errors.DataMissing("No tod id specified in read_gain_hdf")
-	res = {}
 	try:
 		with h5py.File(fname, "r") as hfile:
-			if dataset is not None: hfile = hfile[dataset]
-			if id is not None: hfile = hfile[id]
-			return hfile["det_uid"].value, hfile["cal"].value
+			if dataset is not None: hfile = hdf_wild(hfile, dataset)
+			if id      is not None: hfile = hdf_wild(hfile, id)
+			data = hfile.value
+			return data["det_uid"], data["cal"]
 	except KeyError:
 		raise errors.DataMissing("Missing gain in file '%s'" % fname)
 
@@ -64,6 +68,8 @@ def read_gain_correction_ascii(fname, id=None):
 	return res
 
 def read_gain_correction_hdf(fname, id=None):
+	# Fits table. Name is specified as / after extension.
+	# E.g. foo.hdf/abscal.
 	dataset = None
 	for ext in [".hdf/",".h5/"]:
 		if ext in fname:
@@ -249,7 +255,8 @@ def read_site(fname):
 	it as a Bunch."""
 	res = bunch.Bunch()
 	for line in utils.lines(fname):
-		if line.isspace(): continue
+		line = line.strip()
+		if len(line) == 0 or line.startswith("#"): continue
 		a = ast.parse(line)
 		id = a.body[0].targets[0].id
 		res[id] = ast.literal_eval(a.body[0].value)
@@ -308,7 +315,9 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_on
 			reference = rowcol[:,0] if rowcol.size > 0 else [0,0]
 			return len(dfile.getdata("tesdatar%02dc%02d" % tuple(reference)))
 		else:
-			return dfile.getdata_multi(["tesdatar%02dc%02d" % (r,c) for (r,c) in rowcol.T])
+			res = dfile.getdata_multi(["tesdatar%02dc%02d" % (r,c) for (r,c) in rowcol.T])
+			if res is not None: return res
+			else: return np.zeros([0,0])
 	if isinstance(fname, basestring):
 		with pyactgetdata.dirfile(fname) as dfile:
 			ids = get_ids(dfile, ids, ndet, mapping)
@@ -448,7 +457,7 @@ def read_pickup_cut(fname):
 def read_beam(fname):
 	"""Given a filename, read an equi-spaced radial beam profile.
 	The file should have format [r,b(r)]. [r,b(r)]"""
-	return np.loadtxt(fname, ndmin=2).T
+	return np.loadtxt(fname, ndmin=2).T[:2]
 
 def read_dark_dets(fname):
 	"""Read a list of detectors from a file with one uid per line. Returns

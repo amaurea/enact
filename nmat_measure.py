@@ -32,6 +32,8 @@ from enlib import nmat, utils, array_ops, fft, errors, config, gapfill
 # Our main noise model
 config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
 config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
+config.default("nmat_jon_amp_threshold", "16,16", "low,high threshold (in power) for accepting eigenmodes, relative to median")
+config.default("nmat_jon_single_threshold", 0.55, "reject modes that have more than this fraction of its amplitude in a single detector")
 config.default("nmat_spike_suppression", 1e-2, "How much to suppress spikes by. This multiplies the uncorrelated noise in those bins")
 
 def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None, cut_unit="freq", verbose=False):
@@ -50,8 +52,9 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	# Construct our mode bins. Interestingly, we skip
 	# the f < 0.25 Hz area.
 	mbins = makebins([0.25, 4.0], srate, nfreq, 1000, rfun=np.round)[1:]
-	amp_thresholds = extend_list([6**2,5**2], len(mbins))
-	single_threshold = 0.55
+	amp_thresholds = config.get("nmat_jon_amp_threshold")
+	amp_thresholds = extend_list([float(w) for w in amp_thresholds.split(",")], len(mbins))
+	single_threshold = config.get("nmat_jon_single_threshold")
 	# Ok, compute our modes, and then measure them in each bin.
 	# When using apodization, the vecs are not necessarily orthogonal,
 	# so don't rely on that.

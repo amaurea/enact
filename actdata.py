@@ -1,4 +1,4 @@
-import numpy as np, time, os, multiprocessing
+import numpy as np, time, os, multiprocessing, sys
 from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut
 from enact import files, cuts, filters
@@ -536,7 +536,6 @@ def calibrate_boresight(data):
 	#  3. Handle it in the autocuts.
 	# The latter is cleaner in my opinion
 	cut = sampcut.from_mask(bad)
-	read_tod(data.entry)
 	gapfill.gapfill_linear(data.boresight, cut, inplace=True)
 	srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 	data += dataset.DataField("srate", srate)
@@ -751,8 +750,10 @@ config.default("cut_tod_mindet",   100, "Minimum number of usable detectors in t
 # These just modify the behavior of a cut. Most of these are in cuts.py
 config.default("cut_sun_dist",    30.0, "Min distance to Sun in Sun cut.")
 config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
+config.default("autocut",        True,  "Turn on or off all automatic cuts. Overrides their individual settings")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
+	if not config.get("autocut"): return d
 	ndet, nsamp = d.ndet, d.nsamp
 	if not ndet or not nsamp: return d
 	# Insert a cut into d if necessary
@@ -985,7 +986,7 @@ def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3):
 	return a - np.cumsum(jumps)*period
 
 #def build_det_group_ids(ainfo):
-#	det_type = np.unique(array_info.det_type, return_inverse=True)[1]
+#	det_type = np.unique(ainfo.det_type, return_inverse=True)[1]
 #	pos      = np.array([ainfo.array_x,ainfo.array_y,ainfo.nom_freq,det_type]).T
 #	groups   = utils.find_equal_groups(pos, tol=1e-3)
 #	group_ids = np.full([len(ainfo)],-1,int)

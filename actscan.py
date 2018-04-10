@@ -1,6 +1,6 @@
 import numpy as np, time
 from enact import nmat_measure, actdata
-from enlib import utils, scan, nmat, resample, config, errors, bench
+from enlib import utils, scan, nmat, resample, config, errors, bench, sampcut
 
 config.default("cut_noise_whiteness", False, "Whether to apply the noise_cut or not")
 config.default("cut_spikes", True, "Whether to apply the spike cut or not")
@@ -8,6 +8,8 @@ config.default("tod_sys", "hor", "Coordinate system the TOD is in. 'hor': Ideal 
 config.default("downsample_method", "fft", "Method to use when downsampling the TOD")
 config.default("noise_model", "jon", "Which noise model to use. Can be 'file' or 'jon'")
 config.default("tod_skip_deconv", False, "Whether to skip the time constant and butterworth deconvolution in actscan")
+config.default("dummy_cut", 0.0, "Fraction of dummy cuts to inject *after* gapfilling and noise estimation")
+config.default("dummy_cut_len", 1000, "Dummy cuts will be exponentially distributed up to this length")
 class ACTScan(scan.Scan):
 	def __init__(self, entry, subdets=None, d=None, verbose=False, dark=False):
 		self.fields = ["gain","mce_filter","tags","polangle","tconst","hwp","cut","point_offsets","boresight","site","tod_shape","array_info","beam","pointsrcs", "buddies"]
@@ -73,6 +75,30 @@ class ACTScan(scan.Scan):
 		self.entry = entry
 		self.id = entry.id
 		self.sampslices = []
+
+		# FIXME: debug test
+		if config.get("dummy_cut") > 0:
+			nmax  = int(config.get("dummy_cut_len"))
+			# Power law between 1 and nmax, with slope -1.
+			# C(w) = log(w)/log(nmax)
+			# P(w) = w**-1/log(nmax)
+			# w(C) = n**C
+			# Mean: (nmax-1)/log(nmax)
+			nmean = (nmax-1)/np.log(nmax)
+			ncut = int(self.nsamp * config.get("dummy_cut") / nmean)
+			cut_ranges = np.zeros([self.ndet, ncut, 2],int)
+			w = (nmax**np.random.uniform(0, 1, size=[self.ndet, ncut])).astype(int)
+			np.clip(w, 1, nmax)
+			cut_ranges[:,:,0] = np.random.uniform(0, self.nsamp, size=[self.ndet, ncut]).astype(int)
+			cut_ranges[:,:,0] = np.sort(cut_ranges[:,:,0],1)
+			cut_ranges[:,:,1] = cut_ranges[:,:,0] + w
+			np.clip(cut_ranges[:,:,1], 0, self.nsamp)
+			cut_dummy = sampcut.from_list(cut_ranges, self.nsamp)
+			print np.mean(w), nmean, nmax, ncut
+			print "cut fraction before", float(self.cut.sum())/self.cut.size
+			self.cut *= cut_dummy
+			print "cut fraction after", float(self.cut.sum())/self.cut.size
+
 	def get_samples(self, verbose=False):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""

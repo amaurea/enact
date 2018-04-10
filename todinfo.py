@@ -4,6 +4,8 @@ from enact import actdata, files
 day_range = [11,23]
 jon_ref   = 1378840304
 
+tsys = "hor"
+
 # Implement our todinfo database using a Tagdb
 class Todinfo(tagdb.Tagdb):
 	def __init__(self, data, sort="id"):
@@ -176,14 +178,14 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 	night = not day
 	jon   = (t - jon_ref)/(3600*24)
 
-	ra, dec = coordinates.transform("hor","cel",[az,el],mjd, site=d.site)
+	ra, dec = coordinates.transform(tsys,"cel",[az,el],mjd, site=d.site)
 	# Get the array center bounds on the sky, assuming constant elevation
 	ts  = utils.ctime2mjd(t+dur/2*np.linspace(-1,1,Nt))
 	azs = az + waz/2*np.linspace(-1,1,Naz)
-	E1 = coordinates.transform("hor","cel",[azs,         [el]*Naz],time=[ts[0]]*Naz, site=d.site)[:,1:]
-	E2 = coordinates.transform("hor","cel",[[azs[-1]]*Nt,[el]*Nt], time=ts,          site=d.site)[:,1:]
-	E3 = coordinates.transform("hor","cel",[azs[::-1],   [el]*Naz],time=[ts[-1]]*Naz,site=d.site)[:,1:]
-	E4 = coordinates.transform("hor","cel",[[azs[0]]*Nt, [el]*Nt], time=ts[::-1],    site=d.site)[:,1:]
+	E1 = coordinates.transform(tsys,"cel",[azs,         [el]*Naz],time=[ts[0]]*Naz, site=d.site)[:,1:]
+	E2 = coordinates.transform(tsys,"cel",[[azs[-1]]*Nt,[el]*Nt], time=ts,          site=d.site)[:,1:]
+	E3 = coordinates.transform(tsys,"cel",[azs[::-1],   [el]*Naz],time=[ts[-1]]*Naz,site=d.site)[:,1:]
+	E4 = coordinates.transform(tsys,"cel",[[azs[0]]*Nt, [el]*Nt], time=ts[::-1],    site=d.site)[:,1:]
 	bounds = np.concatenate([E1,E2,E3,E4],1)
 	bounds[0] = utils.rewind(bounds[0])
 	## Grow bounds by array radius
