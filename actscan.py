@@ -75,6 +75,7 @@ class ACTScan(scan.Scan):
 		self.entry = entry
 		self.id = entry.id
 		self.sampslices = []
+		self.mapping = None
 
 		# FIXME: debug test
 		if config.get("dummy_cut") > 0:
@@ -114,6 +115,9 @@ class ACTScan(scan.Scan):
 		tod = self.d.tod
 		# Remove tod from our local d, so we won't end up hauling it around forever
 		del self.d.tod
+		# HWP resample if needed
+		if self.mapping is not None:
+			tod = np.ascontiguousarray(utils.interpol(tod, self.mapping.oimap[None], order=1, mask_nan=False))
 		method = config.get("downsample_method")
 		for s in self.sampslices:
 			srange = slice(s.start, s.stop, np.sign(s.step) if s.step else None)

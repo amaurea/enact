@@ -25,7 +25,7 @@ def read_gain_hdf(fname, id=None):
 		if ext in fname:
 			ftoks = fname.split(ext)
 			fname, dataset = ext.join(ftoks[:-1])+ext[:-1], ftoks[-1]
-	if dataset is None and id is None: raise errors.DataMissing("No tod id specified in read_gain_hdf")
+	if dataset is None and id is None: raise IOError("No tod id specified in read_gain_hdf")
 	try:
 		with h5py.File(fname, "r") as hfile:
 			if dataset is not None: hfile = hdf_wild(hfile, dataset)
@@ -33,7 +33,7 @@ def read_gain_hdf(fname, id=None):
 			data = hfile.value
 			return data["det_uid"], data["cal"]
 	except KeyError:
-		raise errors.DataMissing("Missing gain in file '%s'" % fname)
+		raise IOError("Missing gain in file '%s'" % fname)
 
 def read_gain_correction(fname, id=None, mode="auto"):
 	if mode == "hdf" or mode == "auto" and (
@@ -75,7 +75,7 @@ def read_gain_correction_hdf(fname, id=None):
 		if ext in fname:
 			ftoks = fname.split(ext)
 			fname, dataset = ext.join(ftoks[:-1])+ext[:-1], ftoks[-1]
-	if dataset is None: raise errors.DataMissing("No dataset specified in read_gain_correction_hdf")
+	if dataset is None: raise IOError("No dataset specified in read_gain_correction_hdf")
 	res = {}
 	with h5py.File(fname, "r") as hfile:
 		data = hfile[dataset].value
@@ -223,7 +223,7 @@ def read_cut_hdf(fname, id, flags):
 		frange = frange.select(flags)
 		cuts   = frange.to_sampcut()
 	except KeyError:
-		raise errors.DataMissing("No cuts for %s present" % id)
+		raise IOError("No cuts for %s present" % id)
 	return frange.dets, cuts, frange.sample_offset
 
 def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
@@ -420,7 +420,7 @@ def read_hwp_cleaned(fname, mode="auto"):
 				nsamp = dfile.eof('hwp_angle_fit')
 				return dfile.getdata("hwp_angle_fit", zgetdata.FLOAT32, num_samples=nsamp)
 		except (zgetdata.BadCodeError, zgetdata.OpenError):
-			if mode == "marius": raise errors.DataMissing("File %s is not in marius format" % fname)
+			if mode == "marius": raise IOError("File %s is not in marius format" % fname)
 	# Try the other format
 	with pyactgetdata.dirfile(fname) as dfile:
 		return dfile.getdata("Hwp_Angle")

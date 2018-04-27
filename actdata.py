@@ -29,7 +29,7 @@ def try_read(method, desc, params, *args, **kwargs):
 		kwargs2.update(param)
 		del kwargs2["fname"]
 		try: return method(param["fname"], *args, **kwargs2)
-		except IOError as e: pass
+		except (IOError,errors.DataMissing) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def get_dict_wild(d, key, default=None):
@@ -170,7 +170,7 @@ def try_read_cut(params, desc, id):
 		for param in params:
 			try:
 				return try_read_cut(param, desc, id)
-			except IOError as e:
+			except (IOError, errors.DataMissing) as e:
 				messages.append(e.message)
 		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
 	# Convenience transformations, to make things a bit more readable in the parameter files
@@ -185,7 +185,7 @@ def try_read_cut(params, desc, id):
 		elif params["type"] == "union":
 			return merge_cuts([try_read_cut(param, desc, id) for param in params["subs"]])
 		else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
-	except IOError as e:
+	except (IOError, errors.DataMissing) as e:
 		raise errors.DataMissing(desc + ": " + e.message)
 
 def read_cut(entry, names=["cut","cut_basic","cut_noiseest","cut_quality"], default="cut"):

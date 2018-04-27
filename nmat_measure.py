@@ -1,5 +1,5 @@
 import numpy as np, scipy as sp, time, h5py
-from enlib import nmat, utils, array_ops, fft, errors, config, gapfill
+from enlib import nmat, utils, array_ops, fft, errors, config, gapfill, scan
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated
@@ -507,6 +507,9 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 		res, detslice, sampslice = self.getitem_helper(sel)
 		res.cut = res.cut[sel]
 		return res
+	def resample(self, mapping):
+		self.cut = scan.resample_cut(self.cut, mapping)
+		return self
 
 # Ok, here's a simpler approach. Measure the base power in equi-spaced
 # bins. Find points that differ too much from median. This actually works
