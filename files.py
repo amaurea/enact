@@ -179,7 +179,7 @@ def read_point_offsets(fname):
 		res[id] = np.array([float(toks[5]),float(toks[6])])
 	return res
 
-def read_cut(fname):
+def read_cut(fname, permissive=False):
 	"""Read the act cut format, returning ids, cuts, offset, where cuts is a Multirange
 	object."""
 	nsamp, ndet, offset = None, None, None
@@ -204,6 +204,12 @@ def read_cut(fname):
 			else:
 				cuts.append(sampcut.empty(1, nsamp))
 			dets.append(uid)
+	# Add any missing detectors if we are in permissive mode
+	if permissive:
+		missing = set(range(ndet))-set(dets)
+		for uid in missing:
+			dets.append(uid)
+			cuts.append(sampcut.empty(1,nsamp))
 	# Filter out fully cut tods
 	odets, ocuts = [], []
 	for det, cut in zip(dets, cuts):

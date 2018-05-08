@@ -158,7 +158,9 @@ def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
 	max_nrange = config.get("cut_mostly_cut_nrange", max_nrange)
 	cut_samps  = cuts.sum(axis=1)
 	cut_nrange = cuts.nranges
-	bad = (cut_samps > cuts.nsamp*max_frac) | (cut_nrange > max_nrange)
+	bad = (cut_samps > cuts.nsamp*max_frac)
+	if max_nrange > 0:
+		bad |= cut_nrange > max_nrange
 	ocuts = []
 	for b in bad:
 		if b: ocuts.append(sampcut.full(1,cuts.nsamp))

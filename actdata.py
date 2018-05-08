@@ -266,10 +266,10 @@ def read_dark(entry):
 
 def read_buddies(entry):
 	dets, buddies = try_read(files.read_buddies, "buddies", entry.buddies)
-	if dets is None:
-		return dataset.DataSet([dataset.DataField("buddies", data=buddies)])
-	else:
-		return dataset.DataSet([dataset.DataField("buddies", data=buddies, dets=dets, det_index=0)])
+	return dataset.DataSet([
+		dataset.DataField("buddies_raw", data=buddies),
+		dataset.DataField("buddies_raw_dets", data=dets),
+	])
 
 config.default("hwp_fallback", "none", "How to handle missing HWP data. 'none' skips the tod (it it is supposed to have hwp data), while 'raw' falls back on the native hwp data.")
 def read_hwp(entry):
@@ -337,7 +337,7 @@ def read_array_info(entry):
 		dataset.DataField("entry", entry)])
 
 def read_pointsrcs(entry):
-	data = try_read(pointsrcs.read, "pointsrcs", entry.pointsrcs, exact=False)
+	data = try_read(pointsrcs.read, "pointsrcs", entry.pointsrcs)
 	return dataset.DataSet([
 		dataset.DataField("pointsrcs", data),
 		dataset.DataField("entry", entry)])
@@ -587,8 +587,25 @@ def calibrate_buddies(data):
 	position and TQU linear combination each detector sees each buddy with.
 	This assumes that boresight, polangle and point_offsets already have been
 	calibrated."""
-	require(data, ["buddies", "boresight", "det_comps", "point_offset"])
+	require(data, ["buddies_raw", "boresight", "det_comps", "point_offset"])
 	if data.ndet == 0: raise errors.DataMissing("ndet")
+	# First build buddies from buddies_raw by adding missing detectors. We
+	# do this to avoid cutting detectors that don't have any buddies, and we
+	# do it here because this is where we know how many detectors there are
+	if data.buddies_raw_dets is not None:
+		dummy_buddy = np.zeros([0,5],float)
+		buddies = np.empty(data.ndet,object)
+		for i in range(data.ndet):
+			buddies[i] = dummy_buddy
+		dinds, binds = utils.common_inds([data.dets, data.buddies_raw_dets])
+		for dind, bind in zip(dinds, binds):
+			buddies[dind] = data.buddies_raw[bind]
+	else:
+		# Detector-independent buddy format
+		buddies = np.empty(data.ndet, object)
+		for i in range(data.ndet):
+			buddies[i] = data.buddies_raw[0]
+	data += dataset.DataField("buddies", buddies, dets=data.dets, det_index=0)
 	# Expand buddies to [nbuddy,ndet,{dx,dy,T,Q,U}]
 	bfull   = expand_buddies(data.buddies, data.ndet)
 	# Recover point offsets in xy plane (this would be unnecessary if
@@ -954,6 +971,7 @@ def expand_buddies(buddies, ndet):
 	nmax    = max([len(b) for b in buddies])
 	bfull   = np.zeros([nmax,ndet,5])
 	for di in range(ndet):
+		if len(buddies[di]) == 0: continue
 		# The min and slicing here are there to accomodate the detector-independent
 		# buddy format, where the array has length 1 no matter ho many dets we have.
 		b = buddies[min(di,len(buddies)-1)]
