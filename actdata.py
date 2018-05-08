@@ -177,10 +177,11 @@ def try_read_cut(params, desc, id):
 	if isinstance(params, basestring):
 		toks = params.split(":")
 		if toks[0].endswith(".hdf") or toks[0].endswith(".pdf"): params = {"type":"hdf","fname":toks[0],"flags":toks[1]}
-		else: params = {"type":"old","fname":params}
+		else: params = {"type":"old","fname":toks[0]}
 	try:
 		if   params["type"] == "old":
-			return files.read_cut(params["fname"])
+			permissive = False if "permissive" not in params else params["permissive"]
+			return files.read_cut(params["fname"], permissive=permissive)
 		elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
 		elif params["type"] == "union":
 			return merge_cuts([try_read_cut(param, desc, id) for param in params["subs"]])
