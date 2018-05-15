@@ -594,7 +594,7 @@ def calibrate_buddies(data):
 	# do it here because this is where we know how many detectors there are
 	if data.buddies_raw_dets is not None:
 		dummy_buddy = np.zeros([0,5],float)
-		buddies = np.empty(data.ndet,object)
+		buddies = np.zeros(data.ndet,object)
 		for i in range(data.ndet):
 			buddies[i] = dummy_buddy
 		dinds, binds = utils.common_inds([data.dets, data.buddies_raw_dets])
@@ -966,10 +966,20 @@ def gapfill_helper(tod, cut):
 
 def expand_buddies(buddies, ndet):
 	"""Expand buddies to [nbuddy,ndet,{dx,dy,T,Q,U}]"""
-	if len(buddies) == 0:
-		return np.zeros([0,ndet,5])
-	nmax    = max([len(b) for b in buddies])
+	# Get the default buddy position for any totally missing
+	# buddies. We want these to avoid placing them at [0,0], which
+	# will be outside the array
+	ngood, nmax, poss = 0, 0, []
+	for di, buddy in enumerate(buddies):
+		if len(buddy) == 0: continue
+		ngood += 1
+		nmax   = max(nmax,len(buddy))
+		poss.append(buddy[0,:2])
+	if ngood == 0: return np.zeros([0,ndet,5])
+	# Initialize all buddies to [refx,refy,0,0,0]
 	bfull   = np.zeros([nmax,ndet,5])
+	bfull[:,:,:2] = np.mean(poss,0)
+	# Then set the values for those we actually have
 	for di in range(ndet):
 		if len(buddies[di]) == 0: continue
 		# The min and slicing here are there to accomodate the detector-independent
@@ -977,11 +987,6 @@ def expand_buddies(buddies, ndet):
 		b = buddies[min(di,len(buddies)-1)]
 		# Bfull is [nbuddy,ndet,{dx,dy,T,Q,U}]
 		bfull[:len(b),di] = b
-		if len(b) < nmax:
-			# Padding buddies use the positions of the first buddy. Why care about
-			# this at all when the padding buddies will be skipped? To avoid overestimating
-			# the local patch bounds in the pointing matrix.
-			bfull[len(b):,di,:2] = b[0,:2]
 	return bfull
 
 def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3):
