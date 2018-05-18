@@ -179,7 +179,7 @@ def read_point_offsets(fname):
 		res[id] = np.array([float(toks[5]),float(toks[6])])
 	return res
 
-def read_cut(fname, permissive=False):
+def read_cut(fname, permissive=True):
 	"""Read the act cut format, returning ids, cuts, offset, where cuts is a Multirange
 	object."""
 	nsamp, ndet, offset = None, None, None
