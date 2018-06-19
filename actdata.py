@@ -761,6 +761,7 @@ config.default("cut_stationary", True,  "Whether to apply the stationary ends cu
 config.default("cut_tod_ends",   True,  "Whether to apply the tod ends cut")
 config.default("cut_mostly_cut", True,  "Whether to apply the mostly cut detector cut")
 config.default("cut_point_srcs", False, "Whether to apply the point source cut")
+config.default("cut_point_srcs_gapfill", False, "Whether to treat point sources as super-bright objects that need gapfilling")
 # These cuts are always active, but can be effectively based on the parameter value
 config.default("cut_max_frac",    0.50, "Cut whole tod if more than this fraction is autocut.")
 config.default("cut_tod_mindur",  3.75, "Minimum duration of tod in minutes")
@@ -780,7 +781,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	# insert an autocut datafield, to keep track of how much data each
 	# automatic cut cost us
 	d += dataset.DataField("autocut", [])
-	def addcut(label, dcut, targets="cn"):
+	def addcut(label, dcut, targets="c"):
 		# det ndet part here allows for broadcasting of cuts from 1-det to full-det
 		dn = dcut.sum()*d.ndet/dcut.ndet if dcut is not None else 0
 		if dn == 0: d.autocut.append([label,0,0])
@@ -824,7 +825,9 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		params[:,5:7] = 1
 		params[:,7]   = 0
 		c = cuts.point_source_cut(d, params)
-		addcut("point_srcs", c)
+		must_gapfill = config.get("cut_point_srcs_gapfill")
+		mode = "cnb" if must_gapfill else "c"
+		addcut("point_srcs", c, mode)
 
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
