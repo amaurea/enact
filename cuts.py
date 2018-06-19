@@ -178,7 +178,7 @@ def point_source_cut(d, srcs, threshold=None):
 	tod  = np.zeros((d.ndet,d.nsamp), np.float32)
 	srcs = srcs.astype(np.float64)
 	scan = actscan.ACTScan(d.entry, d=d)
-	psrc = pmat.PmatPtsrc2(scan, srcs)
+	psrc = pmat.PmatPtsrc(scan, srcs)
 	psrc.forward(tod, srcs)
 	# Use them to define mask
 	cuts = []
