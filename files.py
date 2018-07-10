@@ -462,7 +462,7 @@ def read_pickup_cut(fname):
 
 def read_beam(fname):
 	"""Given a filename, read an equi-spaced radial beam profile.
-	The file should have format [r,b(r)]. [r,b(r)]"""
+	The file should have format [r,b(r)]."""
 	return np.loadtxt(fname, ndmin=2).T[:2]
 
 def read_dark_dets(fname):
