@@ -769,6 +769,9 @@ config.default("cut_tod_mindet",   100, "Minimum number of usable detectors in t
 # These just modify the behavior of a cut. Most of these are in cuts.py
 config.default("cut_sun_dist",    30.0, "Min distance to Sun in Sun cut.")
 config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
+# This cut replaces the old noise whiteness cut. It probably isn't as good as that was,
+# but it can be done without needing to read in the TOD, which we don't have at thi spoint
+config.default("cut_tconst",     0, "Cut time constants longer than this number in seconds. 0 disables the cut")
 config.default("autocut",        True,  "Turn on or off all automatic cuts. Overrides their individual settings")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
@@ -792,6 +795,8 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 			if "n" in targets: d.cut_noiseest *= dcut
 			if "b" in targets: d.cut_basic *= dcut
 			d.autocut.append([ label, dn, d.cut.sum() - n0 ]) # name, mycut, myeffect
+	if config.get("cut_tconst") and "tau" in d:
+		addcut("tconst", cuts.tconst_cut(nsamp, d.tau, config.get("cut_tconst")))
 	if config.get("cut_stationary") and "boresight" in d:
 		addcut("stationary", cuts.stationary_cut(d.boresight[1]))
 	if config.get("cut_tod_ends") and "srate" in d:

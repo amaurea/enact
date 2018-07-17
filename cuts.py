@@ -214,6 +214,9 @@ def point_source_cut(d, srcs, threshold=None):
 		cuts.append(sampcut.from_mask(t > threshold))
 	return sampcut.stack(cuts)
 
+def tconst_cut(nsamp, taus, taumax):
+	return sampcut.from_detmask(taus > taumax, nsamp)
+
 def test_cut(bore, frac=0.3, dfrac=0.05):
 	b  = bore[1:]
 	db = np.median(np.abs(b[:,1:]-b[:,:-1]),1)
