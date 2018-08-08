@@ -771,7 +771,7 @@ config.default("cut_sun_dist",    30.0, "Min distance to Sun in Sun cut.")
 config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
 # This cut replaces the old noise whiteness cut. It probably isn't as good as that was,
 # but it can be done without needing to read in the TOD, which we don't have at thi spoint
-config.default("cut_tconst",     0, "Cut time constants longer than this number in seconds. 0 disables the cut")
+config.default("cut_tconst",    0.15, "Cut time constants longer than this number in seconds. 0 disables the cut")
 config.default("autocut",        True,  "Turn on or off all automatic cuts. Overrides their individual settings")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
