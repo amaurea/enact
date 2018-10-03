@@ -1,5 +1,5 @@
 import numpy as np
-from enlib import coordinates, utils, errors, bunch, tagdb
+from enlib import coordinates, utils, errors, bunch, tagdb, ephemeris
 from enact import actdata, files
 day_range = [11,23]
 jon_ref   = 1378840304
@@ -15,6 +15,8 @@ class Todinfo(tagdb.Tagdb):
 		self.add_functor("dist",   dist_fun)
 		self.add_functor("grow",   grow_fun)
 		self.add_functor("esplit", esplit_fun)
+		self.add_functor("planet", planet_fun)
+		self.add_functor("elements", elements_fun)
 	# Print the most useful fields + the true tags for each tod
 	def __repr__(self, nmax=None):
 		lines = []
@@ -150,6 +152,23 @@ class esplit_fun:
 		group_sel[groups[ind]] = True
 		tod_sel = group_sel[inv]
 		return tod_sel
+class planet_fun:
+	def __init__(self, data): self.data = data
+	def __call__(self, name):
+		mjd = utils.ctime2mjd(self.data["t"])
+		mjd[~np.isfinite(mjd)] = 0
+		pos = coordinates.ephem_pos(name, mjd)
+		pos /= utils.degree
+		return pos
+class elements_fun:
+	def __init__(self, data): self.data = data
+	def __call__(self, fname):
+		mjd = utils.ctime2mjd(self.data["t"])
+		mjd[~np.isfinite(mjd)] = 0
+		obj = ephemeris.read_object(fname)
+		pos = ephemeris.ephem_pos(obj, mjd)[:2]
+		pos /= utils.degree
+		return pos
 
 # Functions for extracting tod stats from tod files. Useful for building
 # up Todinfos.
