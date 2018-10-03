@@ -83,7 +83,7 @@ def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 	if np.all(~above_horizon): return null_cut
 	# Find center of array, and radius
 	arr_center = np.mean(det_offs,0)
-	arr_rad    = np.max(np.sum((det_offs-arr_center)**2,0)**0.5)
+	arr_rad    = np.max(np.sum((det_offs-arr_center)**2,1)**0.5)
 	def calc_mask(det_pos, rad, mask=slice(None)):
 		offs  = (det_pos-obj_pos[:,mask])
 		offs[0] *= cosel[mask]
@@ -195,7 +195,7 @@ def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
 		else: ocuts.append(sampcut.empty(1,cuts.nsamp))
 	return sampcut.stack(ocuts)
 
-config.default("cut_point_srcs_threshold", 20, "Signal threshold to use for point source cut. Areas where the source is straonger than this in uK will be cut.")
+config.default("cut_point_srcs_threshold", 10, "Signal threshold to use for point source cut. Areas where the source is straonger than this in uK will be cut.")
 def point_source_cut(d, srcs, threshold=None):
 	threshold = config.get("cut_point_srcs_threshold", threshold)
 	# Sort-of-circular dependency here. I don't like
