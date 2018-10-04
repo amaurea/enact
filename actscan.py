@@ -73,7 +73,12 @@ class ACTScan(scan.Scan):
 		# savings. I don't think allowing this should be a serious problem.
 		self.d = d
 		self.entry = entry
-		self.id = entry.id
+		def fmt_id(entry):
+			if isinstance(entry, list): return "+".join([fmt_id(e) for e in entry])
+			else:
+				if entry.tag: return entry.id + ":" + entry.tag
+				else: return entry.id
+		self.id = fmt_id(entry)
 		self.sampslices = []
 		self.mapping = None
 
@@ -106,7 +111,7 @@ class ACTScan(scan.Scan):
 		# Because we've read the tod_shape field earlier, we know that reading tod
 		# won't cause any additional truncation of the samples or detectors.
 		t1 = time.time()
-		self.d += actdata.read_tod(self.entry, dets=self.d.dets)
+		self.d += actdata.read(self.entry, fields=["tod"], dets=self.d.dets)
 		t2 = time.time()
 		if verbose: print "read  %-14s in %6.3f s" % ("tod", t2-t1)
 		if config.get("tod_skip_deconv"): ops = ["tod_real"]

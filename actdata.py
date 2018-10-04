@@ -19,6 +19,15 @@ def expand_file_params(params, top=True):
 		params = [params]
 	return params
 
+def get_array_name(tod_id): return tod_id.split(".")[-1].replace("ar","pa")
+
+def expand_det_uid(dets, entry=None, tag=None):
+	if tag is None: tag = get_array_name(entry.id)
+	return np.char.mod(tag + "_%04d", dets)
+def unexpand_det_uid(dets, entry=None, tag=None):
+	if tag is None: tag = get_array_name(entry.id)
+	return np.char.partition(dets, tag + "_")[:,2].astype(int)
+
 def try_read(method, desc, params, *args, **kwargs):
 	"""Try to read multiple alternative filenames, raising a DataMissing
 	exception only if none of them can be read. Otherwise, return the first
@@ -66,7 +75,7 @@ def read_gain(entry):
 	# Get the gain mode, which tells us how to compute the total gain
 	gain_mode = entry.gain_mode if "gain_mode" in entry else "direct"
 	return dataset.DataSet([
-		dataset.DataField("gain_raw", gain_raw, dets=dets, det_index=0),
+		dataset.DataField("gain_raw", gain_raw, dets=expand_det_uid(dets, entry), det_index=0),
 		dataset.DataField("gain_correction", correction),
 		dataset.DataField("gain_mode", gain_mode),
 		dataset.DataField("entry", entry)])
@@ -116,13 +125,13 @@ def read_mce_filter(entry):
 def read_polangle(entry):
 	dets, data = try_read(files.read_polangle, "polangle", entry.polangle)
 	return dataset.DataSet([
-		dataset.DataField("polangle", data, dets=dets, det_index=0),
+		dataset.DataField("polangle", data, dets=expand_det_uid(dets, entry), det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_tconst(entry):
 	dets, data = try_read(files.read_tconst, "tconst", entry.tconst, id=entry.id)
 	return dataset.DataSet([
-		dataset.DataField("tau", data, dets=dets, det_index=0),
+		dataset.DataField("tau", data, dets=expand_det_uid(dets, entry), det_index=0),
 		dataset.DataField("entry", entry)])
 
 # There are 3 types of cuts:
@@ -199,7 +208,9 @@ def read_cut(entry, names=["cut","cut_basic","cut_noiseest","cut_quality"], defa
 		else: param = entry[name]
 		dets, data, offset = try_read_cut(param, name, entry.id)
 		samples = [offset, offset + data.nsamp]
-		fields.append(dataset.DataField(name, data, dets=dets, det_index=0, samples=samples, sample_index=1, stacker=sampcut.stack))
+		def stacker(cuts, axis): return sampcut.stack(cuts)
+		fields.append(dataset.DataField(name, data, dets=expand_det_uid(dets, entry), det_index=0, samples=samples, sample_index=1,
+			stacker=stacker))
 	return dataset.DataSet(fields)
 
 def read_point_offsets(entry, no_correction=False):
@@ -209,8 +220,8 @@ def read_point_offsets(entry, no_correction=False):
 	else:
 		correction = 0
 	return dataset.DataSet([
-		dataset.DataField("point_offset",  template+correction, dets=dets, det_index=0),
-		dataset.DataField("point_template",template, dets=dets, det_index=0),
+		dataset.DataField("point_offset",  template+correction, dets=expand_det_uid(dets, entry), det_index=0),
+		dataset.DataField("point_template",template, dets=expand_det_uid(dets, entry), det_index=0),
 		dataset.DataField("point_correction",correction),
 		dataset.DataField("entry", entry)])
 
@@ -223,7 +234,7 @@ def read_site(entry):
 def read_noise(entry):
 	data = try_read(nmat.read_nmat, "noise", entry.noise)
 	return dataset.DataSet([
-		dataset.DataField("noise", data, dets=data.dets, det_index=0),
+		dataset.DataField("noise", data, dets=expand_det_uid(data.dets, entry), det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_beam(entry):
@@ -236,7 +247,7 @@ def read_noise_cut(entry):
 	try: dets = try_read(files.read_noise_cut, "noise_cut", entry.noise_cut, id=entry.id)[entry.id]
 	except KeyError: raise errors.DataMissing("noise_cut id: " + entry.id)
 	return dataset.DataSet([
-		dataset.DataField("noise_cut", dets=dets),
+		dataset.DataField("noise_cut", dets=expand_det_uid(dets, entry)),
 		dataset.DataField("entry", entry)])
 
 def read_spikes(entry):
@@ -333,6 +344,10 @@ def read_layout(entry):
 
 def read_array_info(entry):
 	data = try_read(files.read_array_info, "array_info", entry.array_info)
+	info = np.lib.recfunctions.stack_arrays([
+		expand_det_uid(data.info.det_uid, entry),
+		np.lib.recfunctions.drop_fields(data.info, "det_uid"),
+		])
 	return dataset.DataSet([
 		dataset.DataField("array_info",data),
 		dataset.DataField("entry", entry)])
@@ -356,6 +371,7 @@ def read_apex(entry):
 
 def read_tags(entry):
 	tag_defs = try_read(files.read_tags, "tag_defs", entry.tag_defs)
+	for key in tag_defs: tag_defs[key] = expand_det_uid(tag_defs[key], entry)
 	if not entry.tag:
 		# If no tag was specified, we won't restrict the detectors at all,
 		# so the datafield won't have a dets specification
@@ -371,26 +387,32 @@ def read_tags(entry):
 				raise errors.DataMissing("Tag %s not defined" % (tag))
 			if dets is None: dets = set(tag_defs[tag])
 			else: dets &= set(tag_defs[tag])
-		dets = np.array(list(dets),dtype=int)
+		dets = np.array(list(dets))
+		if dets.size == 0: dets = np.zeros([0],dtype="S8")
 		return dataset.DataSet([
 			dataset.DataField("tag_defs", tag_defs),
-			dataset.DataField("tags", tags, dets=dets)])
+			dataset.DataField("tags", tags, dets=dets)]) # already expanded
 
 def read_tod_shape(entry, moby=False):
 	if moby: dets, nsamp = try_read(files.read_tod_moby, "tod_shape", entry.tod, shape_only=True)
 	else:    dets, nsamp = try_read(files.read_tod,      "tod_shape", entry.tod, shape_only=True)
 	return dataset.DataSet([
-		dataset.DataField("tod_shape", dets=dets, samples=[0,nsamp]),
+		dataset.DataField("tod_shape", dets=expand_det_uid(dets, entry), samples=[0,nsamp]),
 		dataset.DataField("entry", entry)])
 
 def read_tod(entry, dets=None, moby=False, nthread=None):
 	if nthread is None:
 		# Too many threads is bad due to communication overhead and file system bottleneck
 		nthread = min(5,int(get_dict_default(os.environ,"OMP_NUM_THREADS",5)))
-	if moby: dets, tod = try_read(files.read_tod_moby, "tod", entry.tod, ids=dets)
-	else:    dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=dets, nthread=nthread)
+	if dets is None: raw_dets = None
+	else:
+		# Support passing in old int det lists
+		if issubclass(dets.dtype.type, np.integer): raw_dets = dets
+		else: raw_dets = unexpand_det_uid(dets, entry)
+	if moby: raw_dets, tod = try_read(files.read_tod_moby, "tod", entry.tod, ids=raw_dets)
+	else:    raw_dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=raw_dets, nthread=nthread)
 	return dataset.DataSet([
-		dataset.DataField("tod", tod, dets=dets, samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
+		dataset.DataField("tod", tod, dets=expand_det_uid(raw_dets, entry), samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
 		dataset.DataField("entry", entry)])
 
 readers = {
@@ -419,7 +441,7 @@ readers = {
 	}
 
 default_fields = ["array_info","tags","beam","gain","mce_filter","polangle","tconst","cut","point_offsets","site","spikes","boresight","hwp", "pointsrcs", "buddies", "tod_shape", "tod"]
-def read(entry, fields=None, exclude=None, include=None, verbose=False):
+def read(entry, fields=None, exclude=None, include=None, verbose=False, dets=None):
 	# Handle auto-stacking combo read transparently
 	if isinstance(entry, list) or isinstance(entry, tuple):
 		return read_combo(entry, fields=fields, exclude=exclude, include=include,verbose=verbose)
@@ -429,7 +451,7 @@ def read(entry, fields=None, exclude=None, include=None, verbose=False):
 		for inc in include: fields.append(inc)
 	if exclude is not None:
 		for ex in exclude: fields.remove(ex)
-	d = None
+	d = dataset.DataField("dummy", dets=dets)
 	for field in fields:
 		t1 = time.time()
 		if field is "tod" and d is not None:
@@ -440,14 +462,36 @@ def read(entry, fields=None, exclude=None, include=None, verbose=False):
 		else: d = dataset.merge([d,d2])
 		t2 = time.time()
 		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1) + ("" if d.ndet is None else " %4d dets" % d.ndet)
+	del d.dummy
 	return d
 
-def read_combo(entries, fields=None, exclude=None, verbose=False):
+def read_combo(entries, fields=None, exclude=None, include=None, verbose=False):
 	# Read in each scan individually
+	print """FIXME: read_combo is broken. Some quantities are array-dependent but not
+detector-dependent, such as gain corrections, pointing corrections, mce gain,
+mce filter parameters, point source information, beam information, etc. These
+clobber each other the way things are done now. One could make it work by
+going through every one of those and expanding them to be fully det dependent,
+which would fix this, but this is not always straightforward, and can be a bit
+wasteful, such as for the mce filter that now needs to be computed per
+detector instead of being reusable. Furthermore, the detector set may also not
+be available at the time of reading.
+
+A simple way around all this is to keep everything separate until after
+calibration, and only then merge things. That still leaves some properties
+clobbered, but post-calibration those aren't that important any more.
+
+A more complicated approach would be to teach DataSets about per-array quantities.
+These could for example be automatically expanded to per-detector quantities as soon
+as detector information becomes available, by adding them with a length-1 detector
+axis. That would still require some redundant calculations but may be a good
+solution.\n"""
 	if len(entries) < 1: raise errors.DataMissing("Empty entry list in read_combo")
 	if fields is None: fields = list(default_fields)
-	if exclude is None: exclude = []
-	for ex in exclude: fields.remove(ex)
+	if include is not None:
+		for inc in include: fields.append(inc)
+	if exclude is not None:
+		for ex in exclude: fields.remove(ex)
 	# We need array_info and boresight for combo reading
 	if "array_info" not in fields: fields = ["array_info"] + fields
 	if "boresight" not in fields: fields = ["boresight"] + fields
@@ -455,16 +499,19 @@ def read_combo(entries, fields=None, exclude=None, verbose=False):
 	for entry in entries:
 		if verbose: print "reading %s" % entry.id
 		ds.append(read(entry, fields=fields, verbose=verbose))
+	return merge_data(ds, verbose=verbose)
+
+def merge_data(ds, verbose=False):
 	if len(ds) == 1: return ds[0]
 	# Offset samples to align them, and make detector ids unique
-	det_offs = utils.cumsum([d.array_info.ndet for d in ds])
+	#det_offs = utils.cumsum([d.array_info.ndet for d in ds])
 	offs_real = measure_offsets([d.boresight[0] for d in ds])
 	offs = np.round(offs_real).astype(int)
 	assert np.all(np.abs(offs-offs_real) < 0.1), "Non-integer sample offset in read_combo"
 	if verbose: print "offsets: " + ",".join([str(off) for off in offs])
 	if verbose: print "shifting"
-	for d, det_off, off in zip(ds, det_offs, offs):
-		d.shift(det_off, off)
+	for d, off in zip(ds, offs):
+		d.shift(sample_shift=off)
 	# Find the common samples, as we must restrict to these before
 	# we can take the union
 	samples_list = np.array([d.samples for d in ds])
@@ -482,18 +529,21 @@ def read_combo(entries, fields=None, exclude=None, verbose=False):
 	infos = []
 	for i, d in enumerate(ds):
 		info = d.array_info.info.copy()
-		info.det_uid += det_offs[i]
+		#info.det_uid += det_offs[i]
 		info.row     += row_offs[i]
 		infos.append(info)
-	info = np.concatenate(infos)
+	info = np.rec.array(np.concatenate(infos))
 	dtot.array_info.info = info
 	dtot.array_info.ndet = len(info)
 	dtot.array_info.nrow = np.max(info.row)+1
 	# Dark detectors must also be handled manually, since they don't
 	# follow the normal det slicing
 	if "dark_tod"  in dtot: dtot.dark_tod  = np.concatenate([d.dark_tod for d in ds],0)
-	if "dark_dets" in dtot: dtot.dark_dets = np.concatenate([d.dark_dets+det_offs[i] for i,d in enumerate(ds)],0)
+	if "dark_dets" in dtot: dtot.dark_dets = np.concatenate([d.dark_dets for i,d in enumerate(ds)],0)
 	if "dark_cut"  in dtot: dtot.dark_cut = rangelist.stack_ranges([d.dark_cut for d in ds],0)
+	if "tag_defs"  in dtot:
+		for key in dtot.tag_defs:
+			dtot.tag_defs[key] = np.concatenate([d.tag_defs[key] for i,d in enumerate(ds) if key in d.tag_defs],0)
 	return dtot
 
 def measure_offsets(times, nstep=10, dstep=1000, maxerr=0.1):
