@@ -21,12 +21,12 @@ def expand_file_params(params, top=True):
 
 def get_array_name(tod_id): return tod_id.split(".")[-1].replace("ar","pa")
 
-def expand_det_uid(dets, entry=None, tag=None):
+def build_detname(uids, entry=None, tag=None):
 	if tag is None: tag = get_array_name(entry.id)
-	return np.char.mod(tag + "_%04d", dets)
-def unexpand_det_uid(dets, entry=None, tag=None):
-	if tag is None: tag = get_array_name(entry.id)
-	return np.char.partition(dets, tag + "_")[:,2].astype(int)
+	return np.char.mod(tag + "_%04d", uids)
+def split_detname(detnames):
+	toks = np.char.partition(detnames, "_")
+	return toks[:,0], toks[:,2].astype(int)
 
 def try_read(method, desc, params, *args, **kwargs):
 	"""Try to read multiple alternative filenames, raising a DataMissing
@@ -75,7 +75,7 @@ def read_gain(entry):
 	# Get the gain mode, which tells us how to compute the total gain
 	gain_mode = entry.gain_mode if "gain_mode" in entry else "direct"
 	return dataset.DataSet([
-		dataset.DataField("gain_raw", gain_raw, dets=expand_det_uid(dets, entry), det_index=0),
+		dataset.DataField("gain_raw", gain_raw, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("gain_correction", correction),
 		dataset.DataField("gain_mode", gain_mode),
 		dataset.DataField("entry", entry)])
@@ -125,13 +125,13 @@ def read_mce_filter(entry):
 def read_polangle(entry):
 	dets, data = try_read(files.read_polangle, "polangle", entry.polangle)
 	return dataset.DataSet([
-		dataset.DataField("polangle", data, dets=expand_det_uid(dets, entry), det_index=0),
+		dataset.DataField("polangle", data, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_tconst(entry):
 	dets, data = try_read(files.read_tconst, "tconst", entry.tconst, id=entry.id)
 	return dataset.DataSet([
-		dataset.DataField("tau", data, dets=expand_det_uid(dets, entry), det_index=0),
+		dataset.DataField("tau", data, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("entry", entry)])
 
 # There are 3 types of cuts:
@@ -209,7 +209,7 @@ def read_cut(entry, names=["cut","cut_basic","cut_noiseest","cut_quality"], defa
 		dets, data, offset = try_read_cut(param, name, entry.id)
 		samples = [offset, offset + data.nsamp]
 		def stacker(cuts, axis): return sampcut.stack(cuts)
-		fields.append(dataset.DataField(name, data, dets=expand_det_uid(dets, entry), det_index=0, samples=samples, sample_index=1,
+		fields.append(dataset.DataField(name, data, dets=build_detname(dets, entry), det_index=0, samples=samples, sample_index=1,
 			stacker=stacker))
 	return dataset.DataSet(fields)
 
@@ -220,8 +220,8 @@ def read_point_offsets(entry, no_correction=False):
 	else:
 		correction = 0
 	return dataset.DataSet([
-		dataset.DataField("point_offset",  template+correction, dets=expand_det_uid(dets, entry), det_index=0),
-		dataset.DataField("point_template",template, dets=expand_det_uid(dets, entry), det_index=0),
+		dataset.DataField("point_offset",  template+correction, dets=build_detname(dets, entry), det_index=0),
+		dataset.DataField("point_template",template, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("point_correction",correction),
 		dataset.DataField("entry", entry)])
 
@@ -234,7 +234,7 @@ def read_site(entry):
 def read_noise(entry):
 	data = try_read(nmat.read_nmat, "noise", entry.noise)
 	return dataset.DataSet([
-		dataset.DataField("noise", data, dets=expand_det_uid(data.dets, entry), det_index=0),
+		dataset.DataField("noise", data, dets=build_detname(data.dets, entry), det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_beam(entry):
@@ -247,7 +247,7 @@ def read_noise_cut(entry):
 	try: dets = try_read(files.read_noise_cut, "noise_cut", entry.noise_cut, id=entry.id)[entry.id]
 	except KeyError: raise errors.DataMissing("noise_cut id: " + entry.id)
 	return dataset.DataSet([
-		dataset.DataField("noise_cut", dets=expand_det_uid(dets, entry)),
+		dataset.DataField("noise_cut", dets=build_detname(dets, entry)),
 		dataset.DataField("entry", entry)])
 
 def read_spikes(entry):
@@ -345,7 +345,7 @@ def read_layout(entry):
 def read_array_info(entry):
 	data = try_read(files.read_array_info, "array_info", entry.array_info)
 	info = np.lib.recfunctions.stack_arrays([
-		expand_det_uid(data.info.det_uid, entry),
+		build_detname(data.info.det_uid, entry),
 		np.lib.recfunctions.drop_fields(data.info, "det_uid"),
 		])
 	return dataset.DataSet([
@@ -371,7 +371,7 @@ def read_apex(entry):
 
 def read_tags(entry):
 	tag_defs = try_read(files.read_tags, "tag_defs", entry.tag_defs)
-	for key in tag_defs: tag_defs[key] = expand_det_uid(tag_defs[key], entry)
+	for key in tag_defs: tag_defs[key] = build_detname(tag_defs[key], entry)
 	if not entry.tag:
 		# If no tag was specified, we won't restrict the detectors at all,
 		# so the datafield won't have a dets specification
@@ -397,7 +397,7 @@ def read_tod_shape(entry, moby=False):
 	if moby: dets, nsamp = try_read(files.read_tod_moby, "tod_shape", entry.tod, shape_only=True)
 	else:    dets, nsamp = try_read(files.read_tod,      "tod_shape", entry.tod, shape_only=True)
 	return dataset.DataSet([
-		dataset.DataField("tod_shape", dets=expand_det_uid(dets, entry), samples=[0,nsamp]),
+		dataset.DataField("tod_shape", dets=build_detname(dets, entry), samples=[0,nsamp]),
 		dataset.DataField("entry", entry)])
 
 def read_tod(entry, dets=None, moby=False, nthread=None):
@@ -408,11 +408,11 @@ def read_tod(entry, dets=None, moby=False, nthread=None):
 	else:
 		# Support passing in old int det lists
 		if issubclass(dets.dtype.type, np.integer): raw_dets = dets
-		else: raw_dets = unexpand_det_uid(dets, entry)
+		else: arrays, raw_dets = split_detname(dets)
 	if moby: raw_dets, tod = try_read(files.read_tod_moby, "tod", entry.tod, ids=raw_dets)
 	else:    raw_dets, tod = try_read(files.read_tod,      "tod", entry.tod, ids=raw_dets, nthread=nthread)
 	return dataset.DataSet([
-		dataset.DataField("tod", tod, dets=expand_det_uid(raw_dets, entry), samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
+		dataset.DataField("tod", tod, dets=build_detname(raw_dets, entry), samples=[0,tod.shape[1]], det_index=0, sample_index=1, force_contiguous=True),
 		dataset.DataField("entry", entry)])
 
 readers = {
