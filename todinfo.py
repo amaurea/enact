@@ -61,10 +61,16 @@ class Todinfo(tagdb.Tagdb):
 		datas = []
 		for subfile, tags in tagdb.parse_tagfile_top(fname, vars=vars):
 			data = parse_tagfile_loic(subfile)
+			# tags with format :tag result in tag being appended to the
+			# id:subtag,subtag,.... Then tag is added to the normal list of tags
+			subid  = ",".join([tag[1:] for tag in tags if tag.startswith(":")])
+			tags   = [tag.lstrip(":") for tag in tags]
 			for tag in tags:
 				data[tag] = np.full(len(data["id"]), True, dtype=bool)
+			data["id"] = tagdb.append_subs(data["id"], subid)
 			datas.append(data)
-		return cls(tagdb.merge(datas))
+		res = cls(tagdb.merge(datas))
+		return res
 
 def parse_tagfile_loic(fname):
 	ids = []
@@ -212,8 +218,8 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 	#for i in range(2):
 	#	bounds[i,bounds[i]<bmid[i]] -= arad[i]
 	#	bounds[i,bounds[i]>bmid[i]] += arad[i]
-
-	res = bunch.Bunch(id=entry.id, nsamp=d.nsamp, t=t, mjd=mjd, jon=jon,
+	tot_id = entry.id + (":" + entry.tag if entry.tag else "")
+	res = bunch.Bunch(id=tot_id, nsamp=d.nsamp, t=t, mjd=mjd, jon=jon,
 			hour=hour, day=day, night=night, dur=dur,
 			az =az /utils.degree,  el =el/utils.degree,
 			baz=baz/utils.degree,  bel=bel/utils.degree,

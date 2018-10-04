@@ -110,8 +110,10 @@ class ACTScan(scan.Scan):
 		calibrated on the fly, so store the result if you need to reuse it."""
 		# Because we've read the tod_shape field earlier, we know that reading tod
 		# won't cause any additional truncation of the samples or detectors.
+		# tags is only needed here for read_combo support, but that is mostly broken
+		# anyway.
 		t1 = time.time()
-		self.d += actdata.read(self.entry, fields=["tod"], dets=self.d.dets)
+		self.d += actdata.read(self.entry, fields=["tod", "tags"], dets=self.d.dets)
 		t2 = time.time()
 		if verbose: print "read  %-14s in %6.3f s" % ("tod", t2-t1)
 		if config.get("tod_skip_deconv"): ops = ["tod_real"]
