@@ -185,7 +185,7 @@ def try_read_cut(params, desc, id):
 	# Convenience transformations, to make things a bit more readable in the parameter files
 	if isinstance(params, basestring):
 		toks = params.split(":")
-		if toks[0].endswith(".hdf") or toks[0].endswith(".pdf"): params = {"type":"hdf","fname":toks[0],"flags":toks[1]}
+		if toks[0].endswith(".hdf") or toks[0].endswith(".pdf") or toks[0].endswith(".h5"): params = {"type":"hdf","fname":toks[0],"flags":toks[1]}
 		else: params = {"type":"old","fname":toks[0]}
 	try:
 		if   params["type"] == "old":
