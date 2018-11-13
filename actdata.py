@@ -25,6 +25,7 @@ def build_detname(uids, entry=None, tag=None):
 	if tag is None: tag = get_array_name(entry.id)
 	return np.char.mod(tag + "_%04d", uids)
 def split_detname(detnames):
+	if len(detnames) == 0: return "", np.array([],int)
 	toks = np.char.partition(detnames, "_")
 	return toks[:,0], toks[:,2].astype(int)
 
