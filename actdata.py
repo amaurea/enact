@@ -2,6 +2,7 @@ import numpy as np, time, os, multiprocessing, sys
 from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut
 from enact import files, cuts, filters
+import numpy.lib.recfunctions
 
 def expand_file_params(params, top=True):
 	"""In general we expect parameters to be given as dictionaries
