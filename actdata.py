@@ -592,6 +592,9 @@ def calibrate_boresight(data):
 	gapfill.gapfill_linear(data.boresight, cut, inplace=True)
 	srate = 1/utils.medmean(data.boresight[0,1:]-data.boresight[0,:-1])
 	data += dataset.DataField("srate", srate)
+	# Get the scanning speed too
+	speed = calc_scan_speed(data.boresight[0], data.boresight[1])
+	data += dataset.DataField("speed", speed)
 	return data
 
 def calibrate_hwp(data):
@@ -726,9 +729,10 @@ def calibrate_tod_real(data, nthread=None):
 	utils.deslope(data.tod, w=8, inplace=True)
 	return data
 
+#config.default("fix_beam_aspect", "0:0", "Make an asymmetric beam more circular by blurring it in the scanning direction. The format is hbeam:vbeam, with each being gaussian fwhm in arcminutes. The horizontal blurring applied will bring the horizontal beam size from hbeam to vbeam. FIXME: This does not work. It appears to interact poorly with the noise model.")
 def calibrate_tod_fourier(data):
 	"""Deconvolve instrument filters and time constants from TOD"""
-	require(data, ["tod", "tau", "srate", "mce_params"])
+	require(data, ["tod", "tau", "srate", "speed", "mce_params"])
 	if data.tod.size == 0: return data
 	ft     = fft.rfft(data.tod)
 	freqs  = np.linspace(0, data.srate/2, ft.shape[-1])
@@ -738,6 +742,14 @@ def calibrate_tod_fourier(data):
 	# And the time constants
 	for di in range(len(ft)):
 		ft[di] /= filters.tconst_filter(freqs, data.tau[di])
+	## Optinally apply the beam aspect ratio correction
+	#hbeam, vbeam = np.array(map(float,config.get("fix_beam_aspect").split(":")))*utils.arcmin*utils.fwhm
+	#if vbeam != hbeam:
+	#	el       = np.mean(data.boresight[2,::100])
+	#	k        = 2*np.pi*freqs
+	#	skyspeed = data.speed * np.cos(el)
+	#	tsigma   = (vbeam**2-hbeam**2)**0.5/skyspeed
+	#	ft *= np.exp(-0.5*tsigma**2*k**2)
 	fft.irfft(ft, data.tod, normalize=True)
 	#np.savetxt("test_enki1/tod_detau.txt", data.tod[0])
 	del ft
@@ -1068,6 +1080,13 @@ def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3):
 		jumps[~near_cut] = 0
 	# Then correct our values
 	return a - np.cumsum(jumps)*period
+
+def calc_scan_speed(t, az, step=40):
+	# Quick and dirty scan speed calculation. Suffers from noise bias, but
+	# should be small as long as the step isn't close to 1.
+	tsub = t [::step]
+	asub = az[::step]
+	return utils.medmean(np.abs(asub[1:]-asub[:-1])/np.abs(tsub[1:]-tsub[:-1]))
 
 #def build_det_group_ids(ainfo):
 #	det_type = np.unique(ainfo.det_type, return_inverse=True)[1]
