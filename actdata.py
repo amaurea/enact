@@ -2,6 +2,7 @@ import numpy as np, time, os, multiprocessing, sys
 from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut
 from enact import files, cuts, filters
+from numpy.lib import recfunctions
 
 def expand_file_params(params, top=True):
 	"""In general we expect parameters to be given as dictionaries
@@ -345,9 +346,9 @@ def read_layout(entry):
 
 def read_array_info(entry):
 	data = try_read(files.read_array_info, "array_info", entry.array_info)
-	info = np.lib.recfunctions.stack_arrays([
+	info = recfunctions.stack_arrays([
 		build_detname(data.info.det_uid, entry),
-		np.lib.recfunctions.drop_fields(data.info, "det_uid"),
+		recfunctions.drop_fields(data.info, "det_uid"),
 		])
 	return dataset.DataSet([
 		dataset.DataField("array_info",data),
