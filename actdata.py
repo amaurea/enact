@@ -854,7 +854,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	if config.get("cut_tod_ends") and "srate" in d:
 		addcut("tod_ends", cuts.tod_end_cut(nsamp, d.srate))
 	if config.get("cut_turnaround", turnaround) and "boresight" in d:
-		addcut("turnaround",cuts.turnaround_cut(d.boresight[1], d.srate))
+		addcut("turnaround",cuts.turnaround_cut(d.boresight[1]))
 	if config.get("cut_ground", ground) and "boresight" in d and "point_offset" in d:
 		addcut("ground", cuts.ground_cut(d.boresight, d.point_offset))
 	if config.get("cut_sun", sun) and "boresight" in d and "point_offset" in d and "site" in d:

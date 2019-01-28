@@ -4,50 +4,46 @@ from scipy import ndimage, interpolate
 from enlib.resample import resample_bin
 from enlib import utils, config, coordinates, array_ops, pmat, sampcut
 
-config.default("cut_turnaround_lim",    7.00, "Acceleration threshold for turnaround cut in units of standard deviations of the acceleration.")
-config.default("cut_turnaround_step",   0.25, "Smoothing scale in seconds to use when computing acceleration")
-config.default("cut_turnaround_margin", 0.25, "Margin for turnaround cut in seconds.")
-def turnaround_cut(az, srate, lim=None, step=None, margin=None):
-	"""Cut samples where the telescope is accelerating."""
-	# First compute the smoothed azimuth acceleration. Smoothing is needed because
-	# the acceleration would be far too noisy otherwise
-	step   = config.get("cut_turnaround_step", step)
-	sampstep = int(np.round(step*srate))
-	samps  = np.arange(len(az))
-	knots  = samps[::sampstep][1:-1]
-	spline = interpolate.splrep(samps, az, t=knots)
-	ddaz   = interpolate.splev(samps, spline, 2)*srate**2
-	# Then find the typical acceleration noise, which we will use to
-	# define areas of significant acceleration
-	lim    = config.get("cut_turnaround_lim", lim)
-	addaz  = np.abs(ddaz)
-	sigma  = np.std(ddaz)
-	for i in range(3):
-		sigma = np.std(ddaz[addaz < sigma*4])
-	mask  = addaz > sigma*lim
-	# Build the cut, and grow it by the margin
-	cut   = sampcut.from_mask(mask)
-	margin= utils.nint(config.get("cut_turnaround_margin", margin)*srate/2)
-	cut   = cut.widen(margin)
+#config.default("cut_turnaround_lim",    7.00, "Acceleration threshold for turnaround cut in units of standard deviations of the acceleration.")
+#config.default("cut_turnaround_step",   0.25, "Smoothing scale in seconds to use when computing acceleration")
+#config.default("cut_turnaround_margin", 0.25, "Margin for turnaround cut in seconds.")
+#def turnaround_cut(az, srate, lim=None, step=None, margin=None):
+#	"""Cut samples where the telescope is accelerating."""
+#	# First compute the smoothed azimuth acceleration. Smoothing is needed because
+#	# the acceleration would be far too noisy otherwise
+#	step   = config.get("cut_turnaround_step", step)
+#	sampstep = int(np.round(step*srate))
+#	samps  = np.arange(len(az))
+#	knots  = samps[::sampstep][1:-1]
+#	spline = interpolate.splrep(samps, az, t=knots)
+#	ddaz   = interpolate.splev(samps, spline, 2)*srate**2
+#	# Then find the typical acceleration noise, which we will use to
+#	# define areas of significant acceleration
+#	lim    = config.get("cut_turnaround_lim", lim)
+#	addaz  = np.abs(ddaz)
+#	sigma  = np.std(ddaz)
+#	for i in range(3):
+#		sigma = np.std(ddaz[addaz < sigma*4])
+#	mask  = addaz > sigma*lim
+#	# Build the cut, and grow it by the margin
+#	cut   = sampcut.from_mask(mask)
+#	margin= utils.nint(config.get("cut_turnaround_margin", margin)*srate/2)
+#	cut   = cut.widen(margin)
+#	return cut
+
+# New, simpler turnaround cuts. Simply cuts a given number of degrees away from the
+# extrema.
+config.default("cut_turnaround_margin", 0.2, "Margin for turnaround cut in degrees.")
+def turnaround_cut(az, margin=None):
+	margin = config.get("cut_turnaround_margin", margin)*utils.degree
+	# Use percentile just in case there's some outliers (for example a scan that's a bit
+	# higher than the others.
+	az1    = np.percentile(az,  0.1)
+	az2    = np.percentile(az, 99.9)
+	mask   = (az<az1)|(az>az2)
+	cut    = sampcut.from_mask(mask)
 	return cut
 
-#config.default("cut_turnaround_step", 20, "Smoothing length for turnaround cut. Pointing will be downsampled by this number before acceleration is computed.")
-#config.default("cut_turnaround_lim",   5, "Acceleration threshold for turnaround cut in units of standard deviations of the acceleration.")
-#config.default("cut_turnaround_margin",1, "Margin for turnaround cut in units of the smoothing length. This will be added on each side of the acceleration-masked regions. In units of downsampled samples.")
-#def turnaround_cut(t, az, step=None, lim=None, margin=None):
-#	"""Cut samples where the telescope is accelerating."""
-#	step   = config.get("cut_turnaround_step",   step)
-#	lim    = config.get("cut_turnaround_lim",    lim)
-#	margin = config.get("cut_turnaround_margin", margin)
-#	t2, az2 = resample_bin(t[:2000], [1.0/step]), resample_bin(az, [1.0/step])
-#	dt = np.median(t2[1:]-t2[:-1])
-#	ddaz = (az2[2:]+az2[:-2]-2*az2[1:-1])/dt**2
-#	mask = np.abs(ddaz) > 2*np.std(ddaz)
-#	mask = np.abs(ddaz) > lim*np.std(ddaz[~mask])
-#	res  = sampcut.from_mask(mask)
-#	res.ranges *= step
-#	res.nsamp   = len(t)
-#	res  = res.widen(margin*step)
 #	return res
 
 config.default("cut_ground_az", "57:62,-62:-57,73:75", "Az ranges to consider for ground cut")
