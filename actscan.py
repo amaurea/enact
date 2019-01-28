@@ -47,6 +47,7 @@ class ACTScan(scan.Scan):
 		self.array_info = d.array_info
 		self.sys = config.get("tod_sys")
 		self.site = d.site
+		self.speed = d.speed
 		if "noise" in d:
 			self.noise = d.noise
 		else:
