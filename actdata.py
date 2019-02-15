@@ -191,7 +191,7 @@ def try_read_cut(params, desc, id):
 		else: params = {"type":"old","fname":toks[0]}
 	try:
 		if   params["type"] == "old":
-			permissive = False if "permissive" not in params else params["permissive"]
+			permissive = True if "permissive" not in params else params["permissive"]
 			return files.read_cut(params["fname"], permissive=permissive)
 		elif params["type"] == "hdf": return files.read_cut_hdf(params["fname"], id=id, flags=params["flags"].split(","))
 		elif params["type"] == "union":
