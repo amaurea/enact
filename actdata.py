@@ -282,7 +282,7 @@ def read_buddies(entry):
 	dets, buddies = try_read(files.read_buddies, "buddies", entry.buddies)
 	return dataset.DataSet([
 		dataset.DataField("buddies_raw", data=buddies),
-		dataset.DataField("buddies_raw_dets", data=dets),
+		dataset.DataField("buddies_raw_dets", data=build_detname(dets, entry)),
 	])
 
 config.default("hwp_fallback", "none", "How to handle missing HWP data. 'none' skips the tod (it it is supposed to have hwp data), while 'raw' falls back on the native hwp data.")
@@ -836,6 +836,10 @@ config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
 # This cut replaces the old noise whiteness cut. It probably isn't as good as that was,
 # but it can be done without needing to read in the TOD, which we don't have at thi spoint
 config.default("cut_tconst",    0.15, "Cut time constants longer than this number in seconds. 0 disables the cut")
+
+config.default("cut_extra_srcs", "", "List of [ra dec] of extra sources to cut")
+config.default("cut_extra_lim",  1e-3, "Cut extra sources until they are down by this factor from beam center")
+
 config.default("autocut",        True,  "Turn on or off all automatic cuts. Overrides their individual settings")
 def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None, pickup=None):
 	"""Apply automatic cuts to calibrated data."""
@@ -897,6 +901,15 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		must_gapfill = config.get("cut_point_srcs_gapfill")
 		mode = "cnb" if must_gapfill else "c"
 		addcut("point_srcs", c, mode)
+	if config.get("cut_extra_srcs"):
+		srclist = np.loadtxt(config.get("cut_extra_srcs"), usecols=(0,1), ndmin=2)
+		srclim  = float(config.get("cut_extra_lim"))
+		params  = np.zeros([len(srclist),8])
+		params[:,:2]  = srclist[:,1::-1]*utils.degree
+		params[:,2]   = 1
+		params[:,5:7] = 1
+		c = cuts.point_source_cut(d, params, srclim)
+		addcut("point_srcs", c, "nbc")
 
 	# What fraction is cut?
 	cut_fraction = float(d.cut.sum())/d.cut.size
