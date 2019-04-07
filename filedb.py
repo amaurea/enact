@@ -4,7 +4,7 @@ from enlib.utils import ctime2date
 from enact import todinfo
 
 def id2ts(id): return int(id[:id.index(".")])
-season_ends = [1390000000, 1421000000, 1454000000, 1490000000]
+season_ends = [1390000000, 1421000000, 1454000000, 1490000000, 1520000000]
 
 extractors = {
 	"id":     lambda id: id,
