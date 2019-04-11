@@ -129,12 +129,24 @@ def grow_polygon(polys, dist):
 		polys[i,polys[i]<mid[i]] -= dist[i]
 		polys[i,polys[i]>mid[i]] += dist[i]
 	return polys
+def poly_dist(points, polygons):
+	points   = np.asarray(points)*utils.degree
+	polygons = np.array(polygons)*utils.degree
+	# Put the polygon on the same side of the sky as the points
+	polygons[0] = utils.rewind(polygons[0], points[0])
+	# But don't allow sky wraps inside polygons
+	polygons[0] = utils.rewind(polygons[0], polygons[0,0])
+	inside = utils.point_in_polygon(points.T, polygons.T)
+	dists  = utils.poly_edge_dist(points.T, polygons.T)
+	dists  = np.where(inside, 0, dists)
+	return dists
 
 class hits_fun:
 	def __init__(self, data): self.data = data
-	def __call__(self, point, polys=None):
+	def __call__(self, point, polys=None, tol=0.5):
 		if polys is None: polys = self.data["bounds"]
-		return point_in_polygon_safe(point, polys)
+		if tol == 0: return point_in_polygon_safe(point, polys)
+		else:        return poly_dist(point, polys) < tol*utils.degree
 class dist_fun:
 	def __init__(self, data): self.data = data
 	def __call__(self, point, ref=None):
