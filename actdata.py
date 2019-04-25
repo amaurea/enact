@@ -824,8 +824,6 @@ config.default("cut_obj",        "Venus,Mars,Jupiter,Saturn,Uranus,Neptune", "Ge
 config.default("cut_stationary", True,  "Whether to apply the stationary ends cut")
 config.default("cut_tod_ends",   True,  "Whether to apply the tod ends cut")
 config.default("cut_mostly_cut", True,  "Whether to apply the mostly cut detector cut")
-config.default("cut_point_srcs", False, "Whether to apply the point source cut")
-config.default("cut_point_srcs_gapfill", False, "Whether to treat point sources as super-bright objects that need gapfilling")
 # These cuts are always active, but can be effectively based on the parameter value
 config.default("cut_max_frac",    0.50, "Cut whole tod if more than this fraction is autocut.")
 config.default("cut_tod_mindur",  3.75, "Minimum duration of tod in minutes")
@@ -836,6 +834,8 @@ config.default("cut_moon_dist",   10.0, "Min distance to Moon in Moon cut.")
 # This cut replaces the old noise whiteness cut. It probably isn't as good as that was,
 # but it can be done without needing to read in the TOD, which we don't have at thi spoint
 config.default("cut_tconst",    0.15, "Cut time constants longer than this number in seconds. 0 disables the cut")
+
+config.default("cut_srcs", "map:0,nmat:0", "Point source cut. Comma-separated list of things that can be cut. Can contain map, which will produce a normal cut, or nmat which will produce a cut which is only applied during noise matrix estimation. Example. 'map:0,nmat:10000', which would not cut any sources in the map, but would ignore parts of sources brither than 10 mK when estimating the noise matrix.")
 
 config.default("cut_extra_srcs", "", "List of [ra dec] of extra sources to cut")
 config.default("cut_extra_lim",  1e-3, "Cut extra sources until they are down by this factor from beam center")
@@ -893,14 +893,24 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 			# Hack: only cut for noise estimation purposes if dist is negative
 			targets = "cnb" if dist > 0 else "n"
 			addcut(obj, cuts.avoidance_cut(d.boresight, d.point_offset, d.site, objname, dist), targets=targets)
-	if config.get("cut_point_srcs"):
-		params = pointsrcs.src2param(d.pointsrcs)
-		params[:,5:7] = 1
-		params[:,7]   = 0
-		c = cuts.point_source_cut(d, params)
-		must_gapfill = config.get("cut_point_srcs_gapfill")
-		mode = "cnb" if must_gapfill else "c"
-		addcut("point_srcs", c, mode)
+	if config.get("cut_srcs"):
+		cpar  = [tok.split(":") for tok in config.get("cut_srcs").split(",")]
+		names, lims = [], []
+		for par in cpar:
+			if par[0] in ["map","nmat"]:
+				names.append(par[0])
+				lims.append(float(par[1]))
+		if any(lims):
+			params = pointsrcs.src2param(d.pointsrcs)
+			params[:,5:7] = 1
+			params[:,7]   = 0
+			# Only bother with sources that are actually strong enough
+			maxlim = max(lims+[0])
+			params = params[params[:,2]>maxlim]
+			cutlist = cuts.point_source_cut(d, params, lims)
+			for name, c in zip(names, cutlist):
+				if   name == "map":  addcut("point_srcs_m", c, "c")
+				elif name == "nmat": addcut("point_srcs_n", c, "n")
 	if config.get("cut_extra_srcs"):
 		srclist = np.loadtxt(config.get("cut_extra_srcs"), usecols=(0,1), ndmin=2)
 		srclim  = float(config.get("cut_extra_lim"))

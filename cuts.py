@@ -191,9 +191,8 @@ def cut_mostly_cut_detectors(cuts, max_frac=None, max_nrange=None):
 		else: ocuts.append(sampcut.empty(1,cuts.nsamp))
 	return sampcut.stack(ocuts)
 
-config.default("cut_point_srcs_threshold", 10, "Signal threshold to use for point source cut. Areas where the source is straonger than this in uK will be cut.")
-def point_source_cut(d, srcs, threshold=None):
-	threshold = config.get("cut_point_srcs_threshold", threshold)
+def point_source_cut(d, srcs, thresholds=[]):
+	if len(thresholds) == 0: return []
 	# Sort-of-circular dependency here. I don't like
 	# how actdata datasets are incompatible with scans.
 	# Should I just replace scans with actdata objects?
@@ -205,10 +204,8 @@ def point_source_cut(d, srcs, threshold=None):
 	psrc = pmat.PmatPtsrc(scan, srcs)
 	psrc.forward(tod, srcs)
 	# Use them to define mask
-	cuts = []
-	for t in tod:
-		cuts.append(sampcut.from_mask(t > threshold))
-	return sampcut.stack(cuts)
+	cuts = [sampcut.from_mask(tod > tr) for tr in thresholds]
+	return cuts
 
 def tconst_cut(nsamp, taus, taumax):
 	return sampcut.from_detmask(taus > taumax, nsamp)
