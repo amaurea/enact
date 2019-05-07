@@ -918,7 +918,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		params[:,:2]  = srclist[:,1::-1]*utils.degree
 		params[:,2]   = 1
 		params[:,5:7] = 1
-		c = cuts.point_source_cut(d, params, srclim)
+		c = cuts.point_source_cut(d, params, [srclim])
 		addcut("point_srcs", c, "nbc")
 
 	# What fraction is cut?
