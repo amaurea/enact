@@ -17,6 +17,7 @@ class Todinfo(tagdb.Tagdb):
 		self.add_functor("esplit", esplit_fun)
 		self.add_functor("planet", planet_fun)
 		self.add_functor("elements", elements_fun)
+		self.add_functor("hor",    hor_fun)
 	# Print the most useful fields + the true tags for each tod
 	def __repr__(self, nmax=None):
 		lines = []
@@ -187,6 +188,12 @@ class elements_fun:
 		pos = ephemeris.ephem_pos(obj, mjd)[:2]
 		pos /= utils.degree
 		return pos
+class hor_fun:
+	def __init__(self, data): self.data = data
+	def __call__(self, pos):
+		mjd = utils.ctime2mjd(self.data["t"])
+		hor = coordinates.transform("cel","hor", pos*utils.degree, mjd)/utils.degree
+		return hor
 
 # Functions for extracting tod stats from tod files. Useful for building
 # up Todinfos.
