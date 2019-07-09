@@ -76,11 +76,16 @@ def read_gain(entry):
 	dets, gain_raw = dets[mask], gain_raw[mask]
 	# Get the gain mode, which tells us how to compute the total gain
 	gain_mode = entry.gain_mode if "gain_mode" in entry else "direct"
-	return dataset.DataSet([
+	datafields = [
 		dataset.DataField("gain_raw", gain_raw, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("gain_correction", correction),
 		dataset.DataField("gain_mode", gain_mode),
-		dataset.DataField("entry", entry)])
+		dataset.DataField("entry", entry)]
+	# Read the flatfield if available
+	if "flatfield" in entry:
+		flat_dets, flat_gain = try_read(files.read_flatfield, "flatfield", entry.flatfield)
+		datafields.append(dataset.DataField("flatfield", flat_gain, dets=build_detname(flat_dets, entry), det_index=0))
+	return dataset.DataSet(datafields)
 
 def calibrate_gain(data):
 	"""Combine raw gains and gain corrections to form the final gain."""
@@ -103,6 +108,9 @@ def calibrate_gain(data):
 		raise errors.DataMissing("Missing gain correction for dets [%s]" % ",".join([str(d) for d in uncorr]))
 	if len(overcorr) > 0:
 		raise errors.DataMissing("Multiple gain correction per detector for dets [%s]" % ",".join([str(d) for d in overcorr]))
+	# Apply optional flatfield
+	if "flatfield" in data:
+		gain *= data.flatfield
 	# Apply mce filter gain if necessary
 	if data.gain_mode == "mce":
 		gain /= float(data.mce_gain)
@@ -573,11 +581,11 @@ def calibrate_boresight(data):
 	if data.nsamp in [0, None]: raise errors.DataMissing("nsamp")
 	if data.nsamp < 0: raise errors.DataMissing("nsamp")
 	a = data.boresight[1].copy()
-	data.boresight[1]  = robust_unwind(data.boresight[1], period=360, tol=0.1)
+	bad_flag           = (data.flags!=0)*(data.flags!=0x10)
+	data.boresight[1]  = robust_unwind(data.boresight[1], period=360, tol=0.1, mask=bad_flag)
 	data.boresight[1:]*= np.pi/180
 	#data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
-	bad_flag   = (data.flags!=0)*(data.flags!=0x10)
 	bad_value  = find_boresight_jumps(data.boresight)
 	bad_value |= find_elevation_outliers(data.boresight[2])
 	bad = bad_flag | bad_value
@@ -1085,7 +1093,7 @@ def expand_buddies(buddies, ndet):
 		bfull[:len(b),di] = b
 	return bfull
 
-def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3):
+def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3, mask=None):
 	"""Like utils.unwind, but only registers something as an angle jump if
 	it is of just the right shape. If cut is specified, it should be a list
 	of valid angle cut positions, which will further restrict when jumps are
@@ -1096,6 +1104,9 @@ def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3):
 	valid  = np.abs(np.abs(diffs)-1) < tol/period
 	diffs *= valid
 	jumps  = np.concatenate([[0],np.round(diffs)])
+	if mask is not None:
+		jumps[mask] = 0
+		jumps[:-1][mask[1:]] = 0
 	if cut is not None:
 		near_cut = np.zeros(a.size, bool)
 		for cutval in cut:

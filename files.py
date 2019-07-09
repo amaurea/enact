@@ -85,16 +85,11 @@ def read_gain_correction_hdf(fname, id=None):
 			res[tod_id][tag] = value
 	return res
 
-#def read_gain_correction(fname, id=None):
-#	"""Reads per-tod overall gain correction from file. Returns
-#	{todID: val}."""
-#	res = {}
-#	for line in utils.lines(fname):
-#		if line.startswith("#"): continue
-#		if id and not line.startswith(id) and not line.startswith("*"): continue
-#		tod_id, value = line.split()
-#		res[tod_id] = float(value)
-#	return res
+def read_flatfield(fname):
+	with h5py.File(fname, "r") as hfile:
+		dets  = hfile["dets"].value
+		gain = hfile["gain"].value
+	return dets, gain
 
 def read_polangle(fname, mode="auto"):
 	"""Reads polarization angles in radians, discarding ones marked bad
