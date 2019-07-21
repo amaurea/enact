@@ -45,7 +45,7 @@ class ACTScan(scan.Scan):
 		self.dets  = d.dets
 		self.dgrid = (d.array_info.nrow, d.array_info.ncol)
 		self.array_info = d.array_info
-		self.sys = config.get("tod_sys")
+		self.sys = config.get("tod_sys", entry.tod_sys if "tod_sys" in entry else None)
 		self.site = d.site
 		self.speed = d.speed
 		if "noise" in d:
