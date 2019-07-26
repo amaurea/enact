@@ -862,7 +862,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 	d += dataset.DataField("autocut", [])
 	def addcut(label, dcut, targets="c"):
 		# det ndet part here allows for broadcasting of cuts from 1-det to full-det
-		dn = dcut.sum()*d.ndet/dcut.ndet if dcut is not None else 0
+		dn = dcut.sum()*d.ndet/max(1,dcut.ndet) if dcut is not None else 0
 		if dn == 0: d.autocut.append([label,0,0])
 		else:
 			n0, dn = d.cut.sum(), dcut.sum()
