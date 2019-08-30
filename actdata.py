@@ -1,6 +1,6 @@
 import numpy as np, time, os, multiprocessing, sys
 from scipy import signal
-from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut
+from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut, coordinates
 from enact import files, cuts, filters
 from numpy.lib import recfunctions
 
@@ -640,11 +640,32 @@ def crop_fftlen(data, factors=None):
 	data += dataset.DataField("fftlen", samples=[data.samples[0],data.samples[0]+ncrop])
 	return data
 
-def calibrate_point_offset(data):
-	"""Convert pointing offsets from focalplane offsets to ra,dec offsets"""
-	require(data, ["boresight", "point_offset"])
-	data.point_offset[:] = offset_to_dazel(data.point_offset, np.mean(data.boresight[1:,::100],1))
+def calibrate_focalplane(data):
+	"""Rotate detector offsets and angles from focalplane coordinates to horizontal
+	coordinates. In practice this means that we don't really support variable elevation
+	scans, so this is a bit of a hack."""
+	require(data, ["boresight", "point_offset", "polangle"])
+	el = np.mean(data.boresight[2,::100])
+	ocoords      = coordinates.transform("bore","tele", data.point_offset.T, bore=[0,el,0,0], pol=True)
+	point_offset = ocoords[:2].T - [0,el]
+	polangle     = data.polangle + ocoords[2]
+	# negative U component because this is the top row of a positive
+	# rotation matrix [[c,-s],[s,c]].
+	det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(-2*polangle)]).T)
+	data += dataset.DataSet([
+		dataset.DataField("point_offset_raw", data.point_offset, dets=data.dets, det_index=0),
+		dataset.DataField("polangle_raw",     data.polangle,     dets=data.dets, det_index=0),
+		dataset.DataField("point_offset",     point_offset,      dets=data.dets, det_index=0),
+		dataset.DataField("polangle",         polangle,          dets=data.dets, det_index=0),
+		dataset.DataField("det_comps",        det_comps,         dets=data.dets, det_index=0),
+	])
 	return data
+
+#def calibrate_point_offset(data):
+#	"""Convert pointing offsets from focalplane offsets to ra,dec offsets"""
+#	require(data, ["boresight", "point_offset"])
+#	data.point_offset[:] = offset_to_dazel(data.point_offset, np.mean(data.boresight[1:,::100],1))
+#	return data
 
 def calibrate_buddies(data):
 	"""Convert buddies to buddy_offs and buddy_comps, which describes the
@@ -688,18 +709,18 @@ def calibrate_buddies(data):
 		dataset.DataField("buddy_comps", buddy_comps, dets=data.dets, det_index=1)])
 	return data
 
-def calibrate_polangle(data):
-	"""Rotate polarization angles to match the Healpix convention"""
-	require(data, ["polangle"])
-	data.polangle += np.pi/2
-	# negative U component because this is the top row of a positive
-	# rotation matrix [[c,-s],[s,c]].
-	det_comps = np.ascontiguousarray(np.array([
-		data.polangle*0+1,
-		np.cos(+2*data.polangle),
-		np.sin(-2*data.polangle)]).T)
-	data += dataset.DataField("det_comps", det_comps, dets=data.dets, det_index=0)
-	return data
+#def calibrate_polangle(data):
+#	"""Rotate polarization angles to match the Healpix convention"""
+#	require(data, ["polangle","boresight","point_offset"])
+#	data.polangle += np.pi/2
+#	# negative U component because this is the top row of a positive
+#	# rotation matrix [[c,-s],[s,c]].
+#	det_comps = np.ascontiguousarray(np.array([
+#		data.polangle*0+1,
+#		np.cos(+2*data.polangle),
+#		np.sin(-2*data.polangle)]).T)
+#	data += dataset.DataField("det_comps", det_comps, dets=data.dets, det_index=0)
+#	return data
 
 config.default("pad_cuts", "0:0", "Number of samples by which to widen each cut range by")
 def calibrate_cut(data, n=None):
@@ -952,10 +973,9 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 
 calibrators = {
 	"boresight":    calibrate_boresight,
-	"point_offset": calibrate_point_offset,
 	"gain":         calibrate_gain,
 	"beam":         calibrate_beam,
-	"polangle":     calibrate_polangle,
+	"focalplane":   calibrate_focalplane,
 	"cut":          calibrate_cut,
 	"autocut":      autocut,
 	"fftlen":       crop_fftlen,
@@ -970,7 +990,7 @@ calibrators = {
 	"buddies":      calibrate_buddies,
 }
 
-default_calib = ["boresight", "gain", "polangle", "hwp", "point_offset", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
+default_calib = ["boresight", "gain", "focalplane", "hwp", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
 def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 	"""Calibrate the DataSet data by applying the given set of calibration
 	operations to it in the given order. Data is modified inplace. If strict
