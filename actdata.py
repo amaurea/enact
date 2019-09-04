@@ -648,10 +648,19 @@ def calibrate_focalplane(data):
 	el = np.mean(data.boresight[2,::100])
 	ocoords      = coordinates.transform("bore","tele", data.point_offset.T, bore=[0,el,0,0], pol=True)
 	point_offset = ocoords[:2].T - [0,el]
-	polangle     = data.polangle + ocoords[2]
-	# negative U component because this is the top row of a positive
-	# rotation matrix [[c,-s],[s,c]].
-	det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(-2*polangle)]).T)
+	# It seems like what get get from the polarization angle file is shifted by pi/2 and
+	# has the wrong sign for some reason. This could have something to do with coordinate
+	# system handedness. focalplane coordinates and horizontal coordinates are left-handed,
+	# while celelstial coordinates are right-handed. I flip the polarization angle rotation
+	# for left-handed coordinates in coordinates.transform, and also add pi to the rotation
+	# it when going between handednesses. But the inital angle is not flipped. So the
+	# minus sign in front of data.polangle+pi/2 actually matches the hidden minus sign
+	# ocoords[2] got inside transform due to compensating for being a left-handed coordinate
+	# system. So I think this minus sign is taking us from left-handed polarization convention
+	# to right-handed. This is further complicated by the distinction between the pointing
+	# coordinate system and tangent plane coordinate system where the polarization is defined.
+	polangle     = -(data.polangle + np.pi/2) + ocoords[2]
+	det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(2*polangle)]).T)
 	data += dataset.DataSet([
 		dataset.DataField("point_offset_raw", data.point_offset, dets=data.dets, det_index=0),
 		dataset.DataField("polangle_raw",     data.polangle,     dets=data.dets, det_index=0),
@@ -988,6 +997,8 @@ calibrators = {
 	"dark_foutier": calibrate_dark_fourier,
 	"apex":         calibrate_apex,
 	"buddies":      calibrate_buddies,
+	#"polangle":     calibrate_polangle,
+	#"point_offset": calibrate_point_offset,
 }
 
 default_calib = ["boresight", "gain", "focalplane", "hwp", "beam", "cut", "fftlen", "autocut", "tod_real", "tod_fourier","dark", "buddies", "apex"]
