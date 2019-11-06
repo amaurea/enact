@@ -1,8 +1,12 @@
+from __future__ import division, print_function
 import numpy as np, time, os, multiprocessing, sys
 from scipy import signal
 from enlib import utils, dataset, nmat, config, errors, gapfill, fft, pointsrcs, todops, bunch, bench, sampcut, coordinates
 from enact import files, cuts, filters
 from numpy.lib import recfunctions
+
+try: basestring
+except: basestring = str
 
 def expand_file_params(params, top=True):
 	"""In general we expect parameters to be given as dictionaries
@@ -471,13 +475,13 @@ def read(entry, fields=None, exclude=None, include=None, verbose=False, dets=Non
 		if d is None: d = d2
 		else: d = dataset.merge([d,d2])
 		t2 = time.time()
-		if verbose: print "read  %-14s in %6.3f s" % (field, t2-t1) + ("" if d.ndet is None else " %4d dets" % d.ndet)
+		if verbose: print("read  %-14s in %6.3f s" % (field, t2-t1) + ("" if d.ndet is None else " %4d dets" % d.ndet))
 	del d.dummy
 	return d
 
 def read_combo(entries, fields=None, exclude=None, include=None, verbose=False):
 	# Read in each scan individually
-	print """FIXME: read_combo is broken. Some quantities are array-dependent but not
+	print("""FIXME: read_combo is broken. Some quantities are array-dependent but not)
 detector-dependent, such as gain corrections, pointing corrections, mce gain,
 mce filter parameters, point source information, beam information, etc. These
 clobber each other the way things are done now. One could make it work by
@@ -495,7 +499,7 @@ A more complicated approach would be to teach DataSets about per-array quantitie
 These could for example be automatically expanded to per-detector quantities as soon
 as detector information becomes available, by adding them with a length-1 detector
 axis. That would still require some redundant calculations but may be a good
-solution.\n"""
+solution.\n""")
 	if len(entries) < 1: raise errors.DataMissing("Empty entry list in read_combo")
 	if fields is None: fields = list(default_fields)
 	if include is not None:
@@ -507,7 +511,7 @@ solution.\n"""
 	if "boresight" not in fields: fields = ["boresight"] + fields
 	ds = []
 	for entry in entries:
-		if verbose: print "reading %s" % entry.id
+		if verbose: print("reading %s" % entry.id)
 		ds.append(read(entry, fields=fields, verbose=verbose))
 	return merge_data(ds, verbose=verbose)
 
@@ -518,19 +522,19 @@ def merge_data(ds, verbose=False):
 	offs_real = measure_offsets([d.boresight[0] for d in ds])
 	offs = np.round(offs_real).astype(int)
 	assert np.all(np.abs(offs-offs_real) < 0.1), "Non-integer sample offset in read_combo"
-	if verbose: print "offsets: " + ",".join([str(off) for off in offs])
-	if verbose: print "shifting"
+	if verbose: print("offsets: " + ",".join([str(off) for off in offs]))
+	if verbose: print("shifting")
 	for d, off in zip(ds, offs):
 		d.shift(sample_shift=off)
 	# Find the common samples, as we must restrict to these before
 	# we can take the union
 	samples_list = np.array([d.samples for d in ds])
 	samples = np.array([np.max(samples_list[:,0]),np.min(samples_list[:,1])])
-	if verbose: print "restricting"
+	if verbose: print("restricting")
 	for d in ds: d.restrict(samples=samples)
 	# Ok, all datasets have the same sample range, and non-overlapping detectors.
 	# Merge into a union dataset
-	if verbose: print "union"
+	if verbose: print("union")
 	dtot = dataset.detector_union(ds)
 	# Array info cannot be automatically merged, so do it manually. We
 	# assume that all have the same rectangular layout with the same number
@@ -761,7 +765,7 @@ def calibrate_tod_real(data, nthread=None):
 	require(data, ["tod","gain","cut_basic"])
 	if data.tod.size == 0: raise errors.DataMissing("No tod samples")
 	data.tod  = data.tod.astype(np.int32, copy=False)
-	data.tod /= 128
+	data.tod//= 128
 	data.tod  = data.tod * (data.gain[:,None]*8)
 	gapfill_helper(data.tod, data.cut_basic)
 	utils.deslope(data.tod, w=8, inplace=True)
@@ -896,7 +900,7 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 		if dn == 0: d.autocut.append([label,0,0])
 		else:
 			n0, dn = d.cut.sum(), dcut.sum()
-			dn = dn*d.cut.ndet/dcut.ndet
+			dn = dn*d.cut.ndet//dcut.ndet
 			if "c" in targets: d.cut *= dcut
 			if "n" in targets: d.cut_noiseest *= dcut
 			if "b" in targets: d.cut_basic *= dcut
@@ -1021,7 +1025,7 @@ def calibrate(data, operations=None, exclude=None, strict=False, verbose=False):
 			if strict: raise
 			status = 0
 		t2 = time.time()
-		if verbose: print "calib %-14s in %6.3f s" % (op, t2-t1) + (("" if data.ndet is None else " %4d dets" % data.ndet) if status else " [skipped]")
+		if verbose: print("calib %-14s in %6.3f s" % (op, t2-t1) + (("" if data.ndet is None else " %4d dets" % data.ndet) if status else " [skipped]"))
 	return data
 
 # Helper functions
@@ -1077,7 +1081,7 @@ def dazel_to_offset(dazel, azel):
 def find_boresight_jumps(bore, width=20, tol=[1.00,0.03,0.03]):
 	# median filter array to get reference behavior
 	bad = np.zeros(bore.shape[-1],dtype=bool)
-	width = int(width)/2*2+1
+	width = int(width)//2*2+1
 	for i, b in enumerate(bore):
 		# Median filter is too slow. Let's look at blocks instead
 		#fb = signal.medfilt(b, width)

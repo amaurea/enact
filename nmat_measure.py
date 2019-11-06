@@ -1,3 +1,4 @@
+from __future__ import division, print_function
 import numpy as np, scipy as sp, time, h5py
 from enlib import nmat, utils, array_ops, fft, errors, config, gapfill, scan
 
@@ -368,7 +369,7 @@ def mycontiguous(a):
 	return b
 
 def measure_cov(d, nmax=10000):
-	d = d[:,::max(1,d.shape[1]/nmax)]
+	d = d[:,::max(1,d.shape[1]//nmax)]
 	n,m = d.shape
 	step  = 10000
 	res = np.zeros((n,n))
@@ -396,7 +397,7 @@ def makebins(edge_freqs, srate, nfreq, nmin=0, rfun=None):
 	return np.array([np.concatenate([[0],binds]),np.concatenate([binds,[nfreq]])]).T
 
 def sample_nmax(d, nmax):
-	step = max(d.shape[-1]/nmax,1)
+	step = max(d.shape[-1]//nmax,1)
 	return d[:,::step]
 
 def bins2mask(bins, nfreq):
@@ -456,14 +457,14 @@ def find_modes_jon(ft, bins, amp_thresholds=None, single_threshold=0, mask=None,
 			# data to measure
 			median_e = np.median(np.sort(e)[::-1][:b[1]-b[0]+1])
 			score *= np.minimum(1,np.maximum(0,e/(amp_thresholds[bi]*median_e)))**apodization
-		if verbose: print "bin %d: %4d modes above amp_threshold" % (bi, np.sum(score>=apod_threshold))
+		if verbose: print("bin %d: %4d modes above amp_threshold" % (bi, np.sum(score>=apod_threshold)))
 		if single_threshold and e.size:
 			# Reject modes too concentrated into a single mode. Judge based on
 			# 1-fraction_in_single to make apodization smoother
 			distributedness = 1-np.max(np.abs(v),0)
 			score *= np.minimum(1,distributedness/(1-single_threshold))**apodization
 		good = score >= apod_threshold
-		if verbose: print "bin %d: %4d modes above single_threshold" % (bi, np.sum(good))
+		if verbose: print("bin %d: %4d modes above single_threshold" % (bi, np.sum(good)))
 		e, v, score = e[good], v[:,good], score[good]
 		vecs = np.hstack([vecs,v])
 		scores = np.concatenate([scores,score])
@@ -497,7 +498,7 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 			else:
 				raise ValueError("Unknown noise model '%s'" % self.model)
 		except (errors.ModelError, np.linalg.LinAlgError, AssertionError) as e:
-			print "Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape)
+			print("Warning: Noise model fit failed for tod with shape %s. Assigning zero weight" % str(tod.shape))
 			noise_model = nmat.NmatNull(np.arange(tod.shape[0]))
 		if self.cut is not None:
 			self.cut.insert_samples(tod, vals)
@@ -562,8 +563,8 @@ def build_spec_bins(mps, bsize=100, lim=8, lim2=1.05):
 	return bins_tot, bins_spike
 
 def downsample(a, n):
-	nb  = a.size/n
-	res = np.zeros((a.size+n-1)/n)
+	nb  = a.size//n
+	res = np.zeros((a.size+n-1)//n)
 	res[:nb] = np.mean(a[:nb*n].reshape(nb,n),-1)
 	if nb < res.size:
 		res[-1] = np.mean(a[nb*n:])

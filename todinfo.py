@@ -1,3 +1,4 @@
+from __future__ import division, print_function
 import numpy as np
 from enlib import coordinates, utils, errors, bunch, tagdb, ephemeris
 from enact import actdata, files
@@ -22,7 +23,7 @@ class Todinfo(tagdb.Tagdb):
 	def __repr__(self, nmax=None):
 		lines = []
 		n = len(self)
-		n1, n2 = (n, 0) if not nmax or n <= nmax else (nmax/4, nmax/4)
+		n1, n2 = (n, 0) if not nmax or n <= nmax else (nmax//4, nmax//4)
 		finfo = [
 				("id",  "%25s", "%25s"),
 				("sel", "%3d",   "%3s"),
@@ -117,7 +118,7 @@ def point_in_polygon_safe(points, polygons):
 	polygons[0] = utils.rewind(polygons[0], polygons[0,0], 360)
 	return utils.point_in_polygon(points.T, polygons.T)
 def grow_polygon(polys, dist):
-	print "FIXME: grow_polygon is wrong"
+	print("FIXME: grow_polygon is wrong")
 	polys = np.array(polys)
 	dist  = np.zeros(2) + dist
 	# Compensate for curvature

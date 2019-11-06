@@ -1,5 +1,6 @@
 """This module provides definitions of the effective filters that
 are applied to the TOD by the ACT hardware."""
+from __future__ import division, print_function
 import numpy as np
 
 def tconst_filter(freq, tau):

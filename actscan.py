@@ -1,3 +1,4 @@
+from __future__ import division, print_function
 import numpy as np, time
 from enact import nmat_measure, actdata
 from enlib import utils, scan, nmat, resample, config, errors, bench, sampcut
@@ -101,10 +102,10 @@ class ACTScan(scan.Scan):
 			cut_ranges[:,:,1] = cut_ranges[:,:,0] + w
 			np.clip(cut_ranges[:,:,1], 0, self.nsamp)
 			cut_dummy = sampcut.from_list(cut_ranges, self.nsamp)
-			print np.mean(w), nmean, nmax, ncut
-			print "cut fraction before", float(self.cut.sum())/self.cut.size
+			print(np.mean(w), nmean, nmax, ncut)
+			print("cut fraction before", float(self.cut.sum())/self.cut.size)
 			self.cut *= cut_dummy
-			print "cut fraction after", float(self.cut.sum())/self.cut.size
+			print("cut fraction after", float(self.cut.sum())/self.cut.size)
 
 	def get_samples(self, verbose=False):
 		"""Return the actual detector samples. Slow! Data is read from disk and
@@ -116,7 +117,7 @@ class ACTScan(scan.Scan):
 		t1 = time.time()
 		self.d += actdata.read(self.entry, fields=["tod", "tags"], dets=self.d.dets)
 		t2 = time.time()
-		if verbose: print "read  %-14s in %6.3f s" % ("tod", t2-t1)
+		if verbose: print("read  %-14s in %6.3f s" % ("tod", t2-t1))
 		if config.get("tod_skip_deconv"): ops = ["tod_real"]
 		else: ops = ["tod"]
 		actdata.calibrate(self.d, operations=ops, verbose=verbose)

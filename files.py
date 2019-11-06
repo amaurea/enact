@@ -1,7 +1,11 @@
 """This module provides low-level access to the actpol TOD metadata files."""
+from __future__ import division, print_function
 import ast, numpy as np, enlib.rangelist, re, h5py, astropy.io.fits
 from enlib import pyactgetdata, bunch, utils, flagrange, sampcut, errors
 from enact import moby_mce
+
+try: basestring
+except: basestring = str
 
 def read_gain(fname, id=None, mode="auto"):
 	if mode == "hdf" or mode == "auto" and re.search(r"\.(hdf|h5)\b",fname):
@@ -242,7 +246,7 @@ def write_cut(fname, dets, cuts, offset=0, nrow=33, ncol=32):
 	detinds = np.zeros(ntot,dtype=int)
 	detinds[dets] = np.arange(len(dets))+1
 	for uid, di in enumerate(detinds):
-		row, col = uid/ncol, uid%ncol
+		row, col = uid//ncol, uid%ncol
 		if di == 0:
 			ranges = [[0,nsamp]]
 		else:
@@ -292,7 +296,7 @@ def read_layout(fname):
 	pcb  = np.array(pcb)
 	return bunch.Bunch(rows=rows, cols=cols, dark=dark, pcb=pcb, nrow=np.max(rows)+1, ncol=np.max(cols)+1, ndet=len(rows))
 
-def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_only=False, nthread=1):
+def read_tod(fname, ids=None, mapping=lambda x: [x//32,x%32], ndet=None, shape_only=False, nthread=1):
 	"""Given a filename or dirfile, reads the time ordered data from the file,
 	returning ids,data. If the ids argument is specified, only those ids will
 	be retrieved. The mapping argument defines the mapping between ids and
@@ -330,7 +334,7 @@ def read_tod(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=None, shape_on
 		rowcol = np.asarray(mapping(ids))
 		return ids, read(dfile, rowcol)
 
-def read_tod_moby(fname, ids=None, mapping=lambda x: [x/32,x%32], ndet=33*32, shape_only=False):
+def read_tod_moby(fname, ids=None, mapping=lambda x: [x//32,x%32], ndet=33*32, shape_only=False):
 	import moby2
 	if ids is None: ids = np.arange(ndet)
 	if shape_only:

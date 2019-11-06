@@ -1,4 +1,5 @@
 """This module implements extra, dynamic data cuts for ACT data."""
+from __future__ import division, print_function
 import numpy as np, time
 from scipy import ndimage, interpolate
 from enlib.resample import resample_bin
@@ -132,7 +133,7 @@ def det2hex(dets, ncol=32):
 	res = []
 	for det in dets:
 		col = det % ncol
-		if   col < 24: hex = col/8
+		if   col < 24: hex = col//8
 		elif col < 27: hex = 3
 		elif col < 29: hex = 4
 		else: hex = 5
