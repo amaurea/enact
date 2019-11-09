@@ -736,7 +736,8 @@ class MCERunfile:
             f = open(filename, "r")
         else:
             f = filename
-        lines = f.readlines()
+        lines = [line.decode() for line in f.readlines()]
+
         block_name = None
         block_data = {}
         self.data = {}
@@ -755,7 +756,7 @@ class MCERunfile:
                 block_data = {}
             elif block_name is None:
                 if data is None or data == '':
-                    if self.data.has_key(key):
+                    if key in self.data:
                         raise BadRunfile('duplicate block \'%s\''%key)
                     block_name = key
                 else:
@@ -765,7 +766,7 @@ class MCERunfile:
         return self.data
     
     def Item(self, block, key, array=True, type='string'):
-        if not self.data.has_key(block) or not self.data[block].has_key(key):
+        if not block in self.data or not key in self.data[block]:
             return None
         data = self.data[block][key]
         if type=='float':

@@ -83,8 +83,11 @@ def read_gain_correction_hdf(fname, id=None):
 	res = {}
 	with h5py.File(fname, "r") as hfile:
 		data = hfile[dataset].value
-		if id: data = data[data["tod_id"]==id]
-		for tod_id, tag, value in data:
+		ids  = utils.decode_array_if_necessary(data["tod_id"])
+		if id: data = data[ids==id]
+		tod_ids, tags, values = data["tod_id"], data["band_id"], data["cal"]
+		tod_ids, tags = map(utils.decode_array_if_necessary, [tod_ids, tags])
+		for tod_id, tag, value in zip(tod_ids, tags, values):
 			if tod_id not in res: res[tod_id] = {}
 			res[tod_id][tag] = value
 	return res
