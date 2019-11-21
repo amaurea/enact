@@ -47,7 +47,7 @@ class Todinfo(tagdb.Tagdb):
 		lines = [header]
 		def pline(i):
 			line = lfmt % tuple([fd[i] for fd in fdata])
-			line += " " + " ".join(sorted([key for key,val in self.data.iteritems() if key != "id" and val.dtype == bool and val.ndim == 1 and val[i]]))
+			line += " " + " ".join(sorted([key for key,val in self.data.items() if key != "id" and val.dtype == bool and val.ndim == 1 and val[i]]))
 			return line
 		for i in range(0,n1):
 			lines.append(pline(i))
