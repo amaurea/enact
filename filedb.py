@@ -51,7 +51,8 @@ def setup_filedb():
 def cjoin(names): return os.path.join(*[config.get(n) for n in names])
 
 def get_patch_path(name):
-	return os.path.join(config.get("root"), config.get("patch_dir"), name)+".fits"
+	if name.endswith(".fits"): return name
+	else: return os.path.join(config.get("root"), config.get("patch_dir"), name)+".fits"
 
 def init():
 	global scans, data
