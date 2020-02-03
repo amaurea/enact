@@ -44,7 +44,7 @@ def try_read(method, desc, params, *args, **kwargs):
 		kwargs2.update(param)
 		del kwargs2["fname"]
 		try: return method(param["fname"], *args, **kwargs2)
-		except (IOError,errors.DataMissing) as e: pass
+		except (IOError, OSError,errors.DataMissing) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def get_dict_wild(d, key, default=None):
@@ -67,7 +67,7 @@ def try_read_dict(method, desc, params, key, *args, **kwargs):
 		try:
 			dict = method(param["fname"], *args, **kwargs2)
 			return get_dict_wild(dict, key)
-		except (IOError, KeyError) as e: pass
+		except (IOError, OSError, KeyError) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
 def read_gain(entry):
@@ -193,8 +193,8 @@ def try_read_cut(params, desc, id):
 		for param in params:
 			try:
 				return try_read_cut(param, desc, id)
-			except (IOError, errors.DataMissing) as e:
-				messages.append(e.message)
+			except (IOError, OSError, errors.DataMissing) as e:
+				messages.append(e.args[0])
 		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
 	# Convenience transformations, to make things a bit more readable in the parameter files
 	if isinstance(params, basestring):
@@ -209,8 +209,8 @@ def try_read_cut(params, desc, id):
 		elif params["type"] == "union":
 			return merge_cuts([try_read_cut(param, desc, id) for param in params["subs"]])
 		else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
-	except (IOError, errors.DataMissing) as e:
-		raise errors.DataMissing(desc + ": " + e.message)
+	except (IOError, OSError, errors.DataMissing) as e:
+		raise errors.DataMissing(desc + ": " + e.args[0])
 
 def read_cut(entry, names=["cut","cut_basic","cut_noiseest","cut_quality"], default="cut"):
 	fields = [dataset.DataField("entry",entry)]

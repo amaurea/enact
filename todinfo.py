@@ -301,5 +301,5 @@ def merge_tod_stats(statlist):
 def get_tods(selector, db):
 	try:
 		return np.array(utils.read_lines(selector))
-	except IOError:
+	except (IOError, OSError):
 		return db[selector]
