@@ -32,6 +32,7 @@ config.default("filevars", "filevars.py", "File with common definitions for file
 config.default("filedb", "filedb.txt", "File describing the location of the TOD and their metadata. Relative to dataset path.")
 config.default("todinfo", "todinfo.hdf","File describing location of the TOD id lists. Relative to dataset path.")
 config.default("file_override", "none", "Comma-separated list of field:file, or none to disable")
+config.default("patch_dir", "area", "Directory where standard patch geometries are stored.")
 config.init()
 
 #class ACTFiles(filedb.FormatDB):
