@@ -197,7 +197,7 @@ def point_source_cut(d, srcs, thresholds=[]):
 	# Sort-of-circular dependency here. I don't like
 	# how actdata datasets are incompatible with scans.
 	# Should I just replace scans with actdata objects?
-	import actscan
+	from . import actscan
 	# Simulate sources
 	tod  = np.zeros((d.ndet,d.nsamp), np.float32)
 	srcs = srcs.astype(np.float64)
