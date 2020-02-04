@@ -194,7 +194,7 @@ def try_read_cut(params, desc, id):
 			try:
 				return try_read_cut(param, desc, id)
 			except (IOError, OSError, errors.DataMissing) as e:
-				messages.append(e.args[0])
+				messages.append(str(e))
 		raise errors.DataMissing(desc + ": " + ", ".join([str(param) + ": " + mes for param,mes in zip(params, messages)]))
 	# Convenience transformations, to make things a bit more readable in the parameter files
 	if isinstance(params, basestring):
@@ -210,7 +210,7 @@ def try_read_cut(params, desc, id):
 			return merge_cuts([try_read_cut(param, desc, id) for param in params["subs"]])
 		else: raise ValueError("Unrecognized cut type '%s'" % params["type"])
 	except (IOError, OSError, errors.DataMissing) as e:
-		raise errors.DataMissing(desc + ": " + e.args[0])
+		raise errors.DataMissing(desc + ": " + str(e))
 
 def read_cut(entry, names=["cut","cut_basic","cut_noiseest","cut_quality"], default="cut"):
 	fields = [dataset.DataField("entry",entry)]

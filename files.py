@@ -515,7 +515,7 @@ def read_pylike_format(fname):
 		try:
 			a = ast.parse(line.replace("nan", "'nan'")) # Does not handle nan
 		except TypeError as e:
-			raise IOError("Unparsable file %s (%s)" % (str(fname), e.args[0]))
+			raise IOError("Unparsable file %s (%s)" % (str(fname), str(e)))
 		id = a.body[0].targets[0].id
 		res[id] = ast.literal_eval(a.body[0].value)
 		# reinsert all the nans. This assumes no nested lists
