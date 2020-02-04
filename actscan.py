@@ -131,7 +131,10 @@ class ACTScan(scan.Scan):
 		for s in self.sampslices:
 			srange = slice(s.start, s.stop, np.sign(s.step) if s.step else None)
 			tod = tod[:,srange]
-			tod = resample.resample(tod, 1.0/np.abs(s.step or 1), method=method)
+			# make sure we get exactly the same length the cuts will be expecting
+			step= np.abs(s.step or 1)
+			olen= (tod.shape[1]+step-1)//step
+			tod = resample.resample(tod, float(olen)/tod.shape[1], method=method)
 		tod = np.ascontiguousarray(tod)
 		return tod
 	def __repr__(self):
