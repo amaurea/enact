@@ -108,6 +108,7 @@ class ACTScan(scan.Scan):
 			self.cut *= cut_dummy
 			print("cut fraction after", float(self.cut.sum())/self.cut.size)
 
+	#def get_samples(self, verbose=False, debug_inject=None):
 	def get_samples(self, verbose=False):
 		"""Return the actual detector samples. Slow! Data is read from disk and
 		calibrated on the fly, so store the result if you need to reuse it."""
@@ -117,6 +118,7 @@ class ACTScan(scan.Scan):
 		# anyway.
 		t1 = time.time()
 		self.d += actdata.read(self.entry, fields=["tod", "tags"], dets=self.d.dets)
+		#if debug_inject is not None: self.d.tod += debug_inject
 		t2 = time.time()
 		if verbose: print("read  %-14s in %6.3f s" % ("tod", t2-t1))
 		if config.get("tod_skip_deconv"): ops = ["tod_real"]
@@ -145,3 +147,5 @@ class ACTScan(scan.Scan):
 		res.sampslices.append(sampslice)
 		res.d.restrict(dets=res.d.dets[detslice])
 		return res
+	def __contains__(self, val):
+		return val in self.__dict__
