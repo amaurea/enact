@@ -90,7 +90,7 @@ def read_gain(entry):
 		flat_dets, flat_gain = try_read(files.read_flatfield, "flatfield", entry.flatfield)
 		datafields.append(dataset.DataField("flatfield", flat_gain, dets=build_detname(flat_dets, entry), det_index=0))
 	if "gain_factor" in entry:
-		dataset.append(dataset.DataField("gain_factor", float(entry.gain_factor)))
+		datafields.append(dataset.DataField("gain_factor", float(entry.gain_factor)))
 	return dataset.DataSet(datafields)
 
 def calibrate_gain(data):
@@ -934,7 +934,8 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 			objname = toks[0]
 			if objname.startswith("["):
 				objname = [float(w)*utils.degree for w in objname[1:-1].split(",")]
-			dist    = 0.5*utils.degree
+			# Buddies extend out to about 0.7 degrees or so in the worst case
+			dist    = 0.8*utils.degree
 			if len(toks) > 1: dist = float(toks[1])*utils.degree
 			# Hack: only cut for noise estimation purposes if dist is negative
 			targets = "cnb" if dist > 0 else "n"
