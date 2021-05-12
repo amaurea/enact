@@ -47,6 +47,32 @@ def try_read(method, desc, params, *args, **kwargs):
 		except (IOError, OSError,errors.DataMissing) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
+def try_read_perdet(method, desc, params, *args, **kwargs):
+	"""Try to read multiple alternative filenames, raising a DataMissing
+	exception only if none of them can be read. Otherwise, return the first
+	matching."""
+	params = expand_file_params(params)
+	odets, ovals = None, None
+	for param in params:
+		kwargs2 = kwargs.copy()
+		kwargs2.update(param)
+		del kwargs2["fname"]
+		try:
+			idets, ivals = method(param["fname"], *args, **kwargs2)
+			if odets is None:
+				odets, ovals = idets, ivals
+			else:
+				new = utils.find(odets, idets, -1)<0
+				odets = np.concatenate([odets,idets[new]])
+				ovals = np.concatenate([ovals,ivals[new]])
+		except (IOError, OSError,errors.DataMissing) as e: pass
+	if odets is None:
+		raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
+	else:
+		order = np.argsort(odets)
+		odets, ovals = odets[order], ovals[order]
+		return odets, ovals
+
 def get_dict_wild(d, key, default=None):
 	if key in d: return d[key]
 	if '*' in d: return d['*']
