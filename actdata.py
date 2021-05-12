@@ -652,7 +652,7 @@ def calibrate_focalplane(data):
 	"""Rotate detector offsets and angles from focalplane coordinates to horizontal
 	coordinates. In practice this means that we don't really support variable elevation
 	scans, so this is a bit of a hack."""
-	require(data, ["boresight", "point_offset", "polangle"])
+	require(data, ["boresight", "point_offset"])
 	el = np.mean(data.boresight[2,::100])
 	if data.point_offset.size > 0:
 		ocoords = coordinates.transform("bore","tele", data.point_offset.T, bore=[0,el,0,0], pol=True)
@@ -670,15 +670,18 @@ def calibrate_focalplane(data):
 	# system. So I think this minus sign is taking us from left-handed polarization convention
 	# to right-handed. This is further complicated by the distinction between the pointing
 	# coordinate system and tangent plane coordinate system where the polarization is defined.
-	polangle     = -(data.polangle + np.pi/2) + ocoords[2]
-	det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(2*polangle)]).T)
 	data += dataset.DataSet([
 		dataset.DataField("point_offset_raw", data.point_offset, dets=data.dets, det_index=0),
-		dataset.DataField("polangle_raw",     data.polangle,     dets=data.dets, det_index=0),
 		dataset.DataField("point_offset",     point_offset,      dets=data.dets, det_index=0),
-		dataset.DataField("polangle",         polangle,          dets=data.dets, det_index=0),
-		dataset.DataField("det_comps",        det_comps,         dets=data.dets, det_index=0),
 	])
+	if "polangle" in data:
+		polangle     = -(data.polangle + np.pi/2) + ocoords[2]
+		det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(2*polangle)]).T)
+		data += dataset.DataSet([
+			dataset.DataField("polangle_raw",     data.polangle,     dets=data.dets, det_index=0),
+			dataset.DataField("polangle",         polangle,          dets=data.dets, det_index=0),
+			dataset.DataField("det_comps",        det_comps,         dets=data.dets, det_index=0),
+		])
 	return data
 
 #def calibrate_point_offset(data):
