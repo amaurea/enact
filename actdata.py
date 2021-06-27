@@ -259,15 +259,18 @@ def read_cut(entry, names=["cut","cut_basic","cut_noiseest","cut_quality"], defa
 
 def read_point_offsets(entry, no_correction=False):
 	dets, template = try_read(files.read_point_template, "point_template", entry.point_template)
+	correction = 0
 	if not no_correction:
 		correction = try_read_dict(files.read_point_offsets, "point_offsets", entry.point_offsets, entry.id)
-	else:
-		correction = 0
-	return dataset.DataSet([
+	fields = [
 		dataset.DataField("point_offset",  template+correction, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("point_template",template, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("point_correction",correction),
-		dataset.DataField("entry", entry)])
+		dataset.DataField("entry", entry)]
+	if not no_correction and "point_slopes" in entry:
+		slope = try_read_dict(files.read_point_slopes, "point_slopes", entry.point_slopes, entry.id)
+		fields.append(dataset.DataField("point_slope", slope))
+	return dataset.DataSet(fields)
 
 def read_site(entry):
 	site = try_read(files.read_site, "site", entry.site)
@@ -708,6 +711,11 @@ def calibrate_focalplane(data):
 			dataset.DataField("polangle",         polangle,          dets=data.dets, det_index=0),
 			dataset.DataField("det_comps",        det_comps,         dets=data.dets, det_index=0),
 		])
+	# Set up the pointing slope
+	if "point_slope" in data and "site" in data:
+		data.site.azslope_az0= data.point_slope[0]
+		azslope_x, azslope_y = data.point_slope[1:3]
+		data.site.azslope_daz, data.site.azslope_del = coordinates.bore2tele([azslope_x, azslope_y], bore=[0,el,0,0])-[0,el]
 	return data
 
 #def calibrate_point_offset(data):
