@@ -82,7 +82,7 @@ def read_gain_correction_hdf(fname, id=None):
 	if dataset is None: raise IOError("No dataset specified in read_gain_correction_hdf")
 	res = {}
 	with h5py.File(fname, "r") as hfile:
-		data = hfile[dataset].value
+		data = hfile[dataset][()]
 		ids  = utils.decode_array_if_necessary(data["tod_id"])
 		if id: data = data[ids==id]
 		tod_ids, tags, values = data["tod_id"], data["band_id"], data["cal"]
@@ -94,8 +94,8 @@ def read_gain_correction_hdf(fname, id=None):
 
 def read_flatfield(fname):
 	with h5py.File(fname, "r") as hfile:
-		dets  = hfile["dets"].value
-		gain = hfile["gain"].value
+		dets  = hfile["dets"][()]
+		gain = hfile["gain"][()]
 	return dets, gain
 
 def read_polangle(fname, mode="auto"):

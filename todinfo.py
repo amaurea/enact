@@ -225,6 +225,7 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 	az  = baz + acenter[0]
 	el  = bel + acenter[1]
 	dur, waz, wel = np.max(d.boresight,1)-np.min(d.boresight,1)
+	if waz > 180*utils.degree: print("bad waz %8.3f for %s" % (waz/utils.degree, entry.id))
 	mjd  = utils.ctime2mjd(t)
 	hour = t/3600.%24
 	day   = hour >= day_range[0] and hour < day_range[1]

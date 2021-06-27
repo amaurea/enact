@@ -47,6 +47,32 @@ def try_read(method, desc, params, *args, **kwargs):
 		except (IOError, OSError,errors.DataMissing) as e: pass
 	raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
 
+def try_read_perdet(method, desc, params, *args, **kwargs):
+	"""Try to read multiple alternative filenames, raising a DataMissing
+	exception only if none of them can be read. Otherwise, return the first
+	matching."""
+	params = expand_file_params(params)
+	odets, ovals = None, None
+	for param in params:
+		kwargs2 = kwargs.copy()
+		kwargs2.update(param)
+		del kwargs2["fname"]
+		try:
+			idets, ivals = method(param["fname"], *args, **kwargs2)
+			if odets is None:
+				odets, ovals = idets, ivals
+			else:
+				new = utils.find(odets, idets, -1)<0
+				odets = np.concatenate([odets,idets[new]])
+				ovals = np.concatenate([ovals,ivals[new]])
+		except (IOError, OSError,errors.DataMissing) as e: pass
+	if odets is None:
+		raise errors.DataMissing(desc + ": " + ", ".join([str(param) for param in params]))
+	else:
+		order = np.argsort(odets)
+		odets, ovals = odets[order], ovals[order]
+		return odets, ovals
+
 def get_dict_wild(d, key, default=None):
 	if key in d: return d[key]
 	if '*' in d: return d['*']
@@ -90,7 +116,7 @@ def read_gain(entry):
 		flat_dets, flat_gain = try_read(files.read_flatfield, "flatfield", entry.flatfield)
 		datafields.append(dataset.DataField("flatfield", flat_gain, dets=build_detname(flat_dets, entry), det_index=0))
 	if "gain_factor" in entry:
-		dataset.append(dataset.DataField("gain_factor", float(entry.gain_factor)))
+		datafields.append(dataset.DataField("gain_factor", float(entry.gain_factor)))
 	return dataset.DataSet(datafields)
 
 def calibrate_gain(data):
@@ -590,7 +616,7 @@ def calibrate_boresight(data):
 	if data.nsamp < 0: raise errors.DataMissing("nsamp")
 	a = data.boresight[1].copy()
 	bad_flag           = (data.flags!=0)*(data.flags!=0x10)
-	data.boresight[1]  = robust_unwind(data.boresight[1], period=360, tol=0.1, mask=bad_flag)
+	data.boresight[1]  = robust_unwind(data.boresight[1], period=360, tol=1.0, mask=bad_flag)
 	data.boresight[1:]*= np.pi/180
 	#data.boresight[1:] = utils.unwind(data.boresight[1:] * np.pi/180)
 	# Find unreliable regions
@@ -652,9 +678,12 @@ def calibrate_focalplane(data):
 	"""Rotate detector offsets and angles from focalplane coordinates to horizontal
 	coordinates. In practice this means that we don't really support variable elevation
 	scans, so this is a bit of a hack."""
-	require(data, ["boresight", "point_offset", "polangle"])
+	require(data, ["boresight", "point_offset"])
 	el = np.mean(data.boresight[2,::100])
-	ocoords      = coordinates.transform("bore","tele", data.point_offset.T, bore=[0,el,0,0], pol=True)
+	if data.point_offset.size > 0:
+		ocoords = coordinates.transform("bore","tele", data.point_offset.T, bore=[0,el,0,0], pol=True)
+	else:
+		ocoords = np.zeros([3,0])
 	point_offset = ocoords[:2].T - [0,el]
 	# It seems like what get get from the polarization angle file is shifted by pi/2 and
 	# has the wrong sign for some reason. This could have something to do with coordinate
@@ -667,15 +696,18 @@ def calibrate_focalplane(data):
 	# system. So I think this minus sign is taking us from left-handed polarization convention
 	# to right-handed. This is further complicated by the distinction between the pointing
 	# coordinate system and tangent plane coordinate system where the polarization is defined.
-	polangle     = -(data.polangle + np.pi/2) + ocoords[2]
-	det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(2*polangle)]).T)
 	data += dataset.DataSet([
 		dataset.DataField("point_offset_raw", data.point_offset, dets=data.dets, det_index=0),
-		dataset.DataField("polangle_raw",     data.polangle,     dets=data.dets, det_index=0),
 		dataset.DataField("point_offset",     point_offset,      dets=data.dets, det_index=0),
-		dataset.DataField("polangle",         polangle,          dets=data.dets, det_index=0),
-		dataset.DataField("det_comps",        det_comps,         dets=data.dets, det_index=0),
 	])
+	if "polangle" in data:
+		polangle     = -(data.polangle + np.pi/2) + ocoords[2]
+		det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(2*polangle)]).T)
+		data += dataset.DataSet([
+			dataset.DataField("polangle_raw",     data.polangle,     dets=data.dets, det_index=0),
+			dataset.DataField("polangle",         polangle,          dets=data.dets, det_index=0),
+			dataset.DataField("det_comps",        det_comps,         dets=data.dets, det_index=0),
+		])
 	return data
 
 #def calibrate_point_offset(data):
@@ -762,6 +794,7 @@ def calibrate_tod(data):
 	data = calibrate_tod_fourier(data)
 	return data
 
+config.default("simple_basic_cuts", False, "Hack: Replace basic cuts with a simple heuristic.")
 def calibrate_tod_real(data, nthread=None):
 	"""Apply gain to tod, fill gaps and deslope. We only gapfill
 	data that's bad enough that it should be excluded when estimating
@@ -771,6 +804,15 @@ def calibrate_tod_real(data, nthread=None):
 	data.tod  = data.tod.astype(np.int32, copy=False)
 	data.tod//= 128
 	data.tod  = data.tod * (data.gain[:,None]*8)
+	if config.get("simple_basic_cuts") and "cut_basic_hack" not in data:
+		data += dataset.DataField("cut_basic_hack", True)
+		with bench.show("simple_glitch_cut"):
+			data.cut_basic = cuts.simple_glitch_cut(data.tod)
+			moo1 = data.cut_basic.sum()
+			moo2 = data.cut.sum()
+			data.cut      *= data.cut_basic
+			moo3 = data.cut.sum()
+			print("simple cut cut %6.2f samples per detector, of which %6.2f were new" % (moo1/data.ndet, (moo3-moo2)/data.ndet))
 	gapfill_helper(data.tod, data.cut_basic)
 	utils.deslope(data.tod, w=8, inplace=True)
 	return data
@@ -934,7 +976,8 @@ def autocut(d, turnaround=None, ground=None, sun=None, moon=None, max_frac=None,
 			objname = toks[0]
 			if objname.startswith("["):
 				objname = [float(w)*utils.degree for w in objname[1:-1].split(",")]
-			dist    = 0.5*utils.degree
+			# Buddies extend out to about 0.7 degrees or so in the worst case
+			dist    = 0.8*utils.degree
 			if len(toks) > 1: dist = float(toks[1])*utils.degree
 			# Hack: only cut for noise estimation purposes if dist is negative
 			targets = "cnb" if dist > 0 else "n"
@@ -1101,9 +1144,11 @@ config.default("gapfill", "joneig", "TOD gapfill method. Can be 'copy', 'linear'
 config.default("gapfill_context", 10, "Samples of context to use for matching up edges of cuts.")
 def gapfill_helper(tod, cut):
 	method, context = config.get("gapfill"), config.get("gapfill_context")
+	def gapfill_dummy(*args, **kwargs): pass
 	gapfiller = {
 			"linear":gapfill.gapfill_linear,
 			"joneig":gapfill.gapfill_joneig,
+			"none": gapfill_dummy,
 			}[method]
 	gapfiller(tod, cut, inplace=True, overlap=context)
 
@@ -1137,22 +1182,29 @@ def robust_unwind(a, period=2*np.pi, cut=None, tol=1e-3, mask=None):
 	it is of just the right shape. If cut is specified, it should be a list
 	of valid angle cut positions, which will further restrict when jumps are
 	allowed. Only 1d input is supported."""
-	# Find places where a jump would be acceptable
 	period = float(period)
-	diffs  = (a[1:]-a[:-1])/period
+	# Find places where a jump would be acceptable. This is based on differences
+	# between consecutive elements, but we ignore masked regions for this.
+	# Start by constructing the masked array
+	if mask is None: mask = np.full(a.shape, False, bool)
+	ma     = a[~mask]
+	# Then find jumps
+	diffs  = (ma[1:]-ma[:-1])/period
 	valid  = np.abs(np.abs(diffs)-1) < tol/period
-	diffs *= valid
-	jumps  = np.concatenate([[0],np.round(diffs)])
-	if mask is not None:
-		jumps[mask] = 0
-		jumps[:-1][mask[1:]] = 0
 	if cut is not None:
-		near_cut = np.zeros(a.size, bool)
+		near_cut = np.zeros(ma.size, bool)
 		for cutval in cut:
-			near_cut |= np.abs((a - cutval + period/2) % period + period/2) < tol
-		jumps[~near_cut] = 0
+			near_cut |= np.abs((am - cutval + period/2) % period + period/2) < tol
+		valid[~near_cut] = 0
+	jumps  = np.where(valid)[0]+1
+	diffs  = diffs[valid]
+	# Translate jumps to refer to the unmasked array
+	minds  = utils.cumsum(~mask)
+	jumps  = np.searchsorted(minds, jumps, side="left")
 	# Then correct our values
-	return a - np.cumsum(jumps)*period
+	steps  = np.zeros(a.shape)
+	steps[jumps] = np.round(diffs)
+	return a - np.cumsum(steps)*period
 
 def calc_scan_speed(t, az, step=40):
 	# Quick and dirty scan speed calculation. Suffers from noise bias, but

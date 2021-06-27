@@ -222,3 +222,27 @@ def test_cut(bore, frac=0.3, dfrac=0.05):
 	bad = (b[si]>=c[0])&(b[si]<c[1])
 	if si == 1: bad[...] = False
 	return sampcut.from_mask(bad)
+
+def simple_glitch_cut(tod, bsize=20, scales=[4], tol=100, dblock=32):
+	"""Look for dramatic glitches, processing each detector individually. Only meant for
+	identifying nasty spikes that need to be gapfilled. scales controls the length
+	scales considered. Something like [1,2,4,8,16] might be ideal for finding glitches
+	with cosistent S/N on multiple length scales, but lower scales can take quite long.
+	Let's try [4] for now. It takes about 2.5 seconds."""
+	cuts = []
+	ndet, nsamp = tod.shape
+	for di1 in range(0, ndet, dblock):
+		di2  = min(di1 + dblock, ndet)
+		dtod = tod[di1:di2]
+		bad  = np.zeros(dtod.shape, bool)
+		for si, scale in enumerate(scales):
+			wtod = utils.block_reduce(dtod, scale, np.mean)
+			# Remove a linear trend every 100 samples. This should get rid of the atmosphere
+			meds = utils.block_reduce(wtod, bsize, np.median)
+			rtod = wtod - utils.block_expand(meds, bsize, wtod.shape[-1], "linear")
+			# Compute the typical rms
+			rms  = np.median(utils.block_reduce(rtod, bsize, np.std),-1)
+			# Flag values that are much higher than this
+			bad |= utils.block_expand(np.abs(rtod) > rms[:,None]*tol, scale, dtod.shape[-1], "nearest")
+		cuts.append(sampcut.from_mask(bad))
+	return sampcut.stack(cuts)

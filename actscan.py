@@ -37,6 +37,7 @@ class ACTScan(scan.Scan):
 		self.offsets[:,1:] = d.point_offset
 		self.cut       = d.cut.copy()
 		self.cut_noiseest = d.cut_noiseest.copy()
+		self.cut_basic = d.cut_basic
 		self.comps     = np.zeros([ndet,4])
 		self.beam      = d.beam
 		self.pointsrcs = d.pointsrcs
@@ -49,11 +50,11 @@ class ACTScan(scan.Scan):
 		self.sys = config.get("tod_sys", entry.tod_sys if "tod_sys" in entry else None)
 		self.site = d.site
 		self.speed = d.speed
+		self.spikes = d.spikes[:2].T if "spikes" in d else None
 		if "noise" in d:
 			self.noise = d.noise
 		else:
-			spikes = d.spikes[:2].T if "spikes" in d else None
-			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), spikes=spikes,
+			self.noise = nmat_measure.NmatBuildDelayed(model = config.get("noise_model"), spikes=self.spikes,
 					cut=self.cut_noiseest)
 		if "dark_tod" in d:
 			self.dark_tod = d.dark_tod
