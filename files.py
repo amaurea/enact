@@ -141,7 +141,7 @@ def read_tconst_ascii(fname, mode="auto"):
 			if len(toks) == 0: continue
 			if mode == "tau" or mode == "auto" and (len(toks) == 2 or len(toks) == 3):
 				det, tau = int(toks[0]), float(toks[1])
-				if tau > 0:
+				if np.isfinite(tau) and tau > 0:
 					dets.append(det)
 					taus.append(tau)
 			elif len(toks) == 5:
