@@ -132,12 +132,7 @@ class ACTScan(scan.Scan):
 			tod = np.ascontiguousarray(utils.interpol(tod, self.mapping.oimap[None], order=1, mask_nan=False))
 		method = config.get("downsample_method")
 		for s in self.sampslices:
-			srange = slice(s.start, s.stop, np.sign(s.step) if s.step else None)
-			tod = tod[:,srange]
-			# make sure we get exactly the same length the cuts will be expecting
-			step= np.abs(s.step or 1)
-			olen= (tod.shape[1]+step-1)//step
-			tod = resample.resample(tod, float(olen)/tod.shape[1], method=method)
+			tod = scan.slice_tod_samps(tod, s, method=method)
 		tod = np.ascontiguousarray(tod)
 		return tod
 	def __repr__(self):

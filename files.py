@@ -181,6 +181,17 @@ def read_point_offsets(fname):
 		res[id] = np.array([float(toks[5]),float(toks[6])])
 	return res
 
+def read_point_slopes(fname):
+	"""Reads per-tod pointing slopes, returning it in the form {todID: [az0, xslope,yslope]).
+	az0 will be in degrees and the slopes in arcmin per degree."""
+	res = {}
+	for line in utils.lines(fname):
+		if line[0] == '#': continue
+		toks = line.split()
+		id   = ".".join(toks[0].split(".")[:3])
+		res[id] = np.array([float(toks[1]),float(toks[2]),float(toks[3])])
+	return res
+
 def read_cut(fname, permissive=True):
 	"""Read the act cut format, returning ids, cuts, offset, where cuts is a Multirange
 	object."""
