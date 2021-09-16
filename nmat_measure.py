@@ -31,11 +31,14 @@ from enlib import nmat, utils, array_ops, fft, errors, config, gapfill, scan
 
 
 # Our main noise model
-config.default("nmat_jon_apod", 0, "Apodization factor to apply for Jon's noise model")
+config.default("nmat_jon_apod", 0.0, "Apodization factor to apply for Jon's noise model")
 config.default("nmat_jon_downweight", True, "Whether to downweight the lowest frequencies in the noise model.")
 config.default("nmat_jon_amp_threshold", "16,16", "low,high threshold (in power) for accepting eigenmodes, relative to median")
 config.default("nmat_jon_single_threshold", 0.55, "reject modes that have more than this fraction of its amplitude in a single detector")
 config.default("nmat_spike_suppression", 1e-2, "How much to suppress spikes by. This multiplies the uncorrelated noise in those bins")
+config.default("nmat_jon_ecap", 0.0, "Cap for eigenvalues in jon noise model, relative to the detector-uncorrelated noise. 0 to disable")
+config.default("nmat_jon_boost_highf", 0.0, "Boost the noise in the highest frequency bin by this amount relative to normal value. So 0 turns off and 1 doubles.")
+config.default("nmat_jon_whiten", 1.0, "Whiten jon noise model by this factor. Divides dynamic range by the given number. 1 to keep as is.")
 
 def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=None, cut_unit="freq", verbose=False):
 	"""Build a Detvecs noise matrix based on Jon's noise model.
@@ -47,6 +50,7 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	apodization = config.get("nmat_jon_apod", apodization) or None
 	downweight  = config.get("nmat_jon_downweight")
 	spike_suppression = config.get("nmat_spike_suppression")
+	ecap        = config.get("nmat_jon_ecap")
 	nfreq    = ft.shape[1]
 	if cut_unit == "freq":
 		cut_bins = freq2ind(cut_bins, srate, nfreq, rfun=np.round)
@@ -76,9 +80,10 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	bins, iscut = add_cut_bins(bins, cut_bins)
 
 	if downweight: white_scale = extend_list([1e-4, 0.25, 0.50, 1.00], len(bins))
-	else: white_scale = [1]*len(bins)
+	else: white_scale = [1.0]*len(bins)
 	white_scale = np.asarray(white_scale)
 	white_scale[iscut] *= spike_suppression
+	white_scale[-1] *= 1 + config.get("nmat_jon_boost_highf")
 
 	if vecs.size == 0: raise errors.ModelError("Could not find any noise modes")
 	# Sharedvecs supports different sets of vecs per bin. But we only
@@ -88,6 +93,16 @@ def detvecs_jon(ft, srate, dets=None, shared=False, cut_bins=None, apodization=N
 	Nu, Nd, E = measure_detvecs_bin(ft, bins, vecs, mask=None, weights=weights)
 	# Apply white noise scaling
 	Nu /= white_scale[:,None]
+
+	whiten = config.get("nmat_jon_whiten")
+	if whiten != 1:
+		E    /= whiten
+		white = np.percentile(Nu,25,0)
+		Nu    = np.maximum((Nu-white)/whiten+white,white)
+
+	if ecap:
+		ref = 1/np.mean(1/Nu,1)
+		E   = np.minimum(E, ref[:,None]*ecap)
 
 	if shared:
 		res = prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds)
@@ -247,12 +262,15 @@ def detvecs_jon_autospike(ft, srate, dets=None):
 config.default("nmat_uncorr_nbin",   100, "Number of bins for uncorrelated noise matrix")
 config.default("nmat_uncorr_type", "exp", "Bin profile for uncorrelated noise matrix")
 config.default("nmat_uncorr_nmin",    10, "Min modes per bin in uncorrelated noise matrix")
+config.default("nmat_uncorr_nmin",    10, "Min modes per bin in uncorrelated noise matrix")
+config.default("nmat_uncorr_whiten", 1.0, "Whiten uncorrelated noise model by this factor. Divides dynamic range by the given number. 1 to keep as is.")
 def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None, vecs=None, eigs=None):
 	nfreq = fourier.shape[1]
 	ndet  = fourier.shape[0]
 	type  = config.get("nmat_uncorr_type", type)
 	nbin  = config.get("nmat_uncorr_nbin", nbin)
 	nmin  = config.get("nmat_uncorr_nmin", nmin)
+	whiten= config.get("nmat_uncorr_whiten")
 
 	if type is "exp":
 		bins = utils.expbin(nfreq, nbin=nbin, nmin=nmin)
@@ -280,11 +298,47 @@ def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None, v
 			# Project out modes for every frequency individually
 			d -= vecs.dot(amps)
 		Nu[bi] = measure_power(d)
+	if whiten != 1:
+		white = np.percentile(Nu,25,0)
+		Nu    = np.maximum((Nu-white)/whiten+white,white)
+		#Nu    = (Nu/white)**whiten * white
 	# Override eigenvalues if necessary. This is useful
 	# for e.g. forcing total common mode subtraction.
 	# eigs must be broadcastable to [nbin,ndet]
 	if eigs is not None: E[:] = eigs
 	#return prepare_detvecs(Nd, V, E, bins, srate, dets)
+	return prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds)
+
+config.default("nmat_oof_fknee", 1.0, "f_knee for simple oof debug noise model")
+config.default("nmat_oof_alpha", -3,  "alpha for simple oof debug noise model")
+def detvecs_oof(fourier, srate, dets=None, type=None, nbin=None, nmin=None):
+	nfreq = fourier.shape[1]
+	ndet  = fourier.shape[0]
+	type  = config.get("nmat_uncorr_type", type)
+	nbin  = config.get("nmat_uncorr_nbin", nbin)
+	nmin  = config.get("nmat_uncorr_nmin", nmin)
+	fknee = config.get("nmat_oof_fknee")
+	alpha = config.get("nmat_oof_alpha")
+
+	if type is "exp":
+		bins = utils.expbin(nfreq, nbin=nbin, nmin=nmin)
+	elif type is "lin":
+		bins = utils.linbin(nfreq, nbin=nbin, nmin=nmin)
+	else: raise ValueError("No such power binning type '%s'" % type)
+	nbin  = bins.shape[0] # expbin may not provide exactly what we want
+
+	# Dummy detector correlation stuff, so we can reuse the sharedvecs stuff
+	vecs = np.full([ndet,0],1)
+	Nu   = np.zeros([nbin,ndet])
+	E    = np.full([nbin,0],1e-10)
+	V    = [vecs]
+	vinds= np.zeros(nbin,dtype=int)
+	for bi, b in enumerate(bins):
+		d     = fourier[:,b[0]:b[1]]
+		Nu[bi] = measure_power(d)
+	# Replace Nu with functional form
+	f  = np.mean(bins,1)*srate/2/nfreq
+	Nu = np.mean(Nu**-1,0)**-1 * (1 + (f/fknee)**alpha)[:,None]
 	return prepare_sharedvecs(Nu, V, E, bins, srate, dets, vinds)
 
 def decomp_clean_modes(d, V, D):
@@ -490,6 +544,9 @@ class NmatBuildDelayed(nmat.NoiseMatrix):
 			elif self.model == "uncorr":
 				ft = fft.rfft(tod) * tod.shape[1]**-0.5
 				noise_model = detvecs_simple(ft, srate)
+			elif self.model == "oof":
+				ft = fft.rfft(tod) * tod.shape[1]**-0.5
+				noise_model = detvecs_oof(ft, srate)
 			elif self.model == "white":
 				noise_model = nmat.NoiseMatrix(len(tod))
 			elif self.model == "scaled":

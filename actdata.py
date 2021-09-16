@@ -607,6 +607,7 @@ def require(data, fields):
 		if field not in data:
 			raise errors.RequireError(field)
 
+config.default("constant_el", False, "Whether to replace the elevation with its mean.")
 def calibrate_boresight(data):
 	"""Calibrate the boresight by converting to radians and
 	interpolating across missing samples linearly. Note that
@@ -640,6 +641,8 @@ def calibrate_boresight(data):
 	# Get the scanning speed too
 	speed = calc_scan_speed(data.boresight[0], data.boresight[1])
 	data += dataset.DataField("speed", speed)
+	if config.get("constant_el"):
+		data.boresight[2] = np.mean(data.boresight[2])
 	return data
 
 def calibrate_hwp(data):

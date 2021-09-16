@@ -33,7 +33,7 @@ class ACTScan(scan.Scan):
 		self.mjd0      = utils.ctime2mjd(d.boresight[0,0])
 		self.boresight = np.ascontiguousarray(d.boresight.T.copy()) # [nsamp,{t,az,el}]
 		self.boresight[:,0] -= self.boresight[0,0]
-		self.offsets   = np.zeros([ndet,self.boresight.shape[1]])
+		self.offsets   = np.zeros([ndet,self.boresight.shape[1]])   # [ndet, {t,az,el}]
 		self.offsets[:,1:] = d.point_offset
 		self.cut       = d.cut.copy()
 		self.cut_noiseest = d.cut_noiseest.copy()

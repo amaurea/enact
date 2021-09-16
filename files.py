@@ -114,14 +114,6 @@ def read_polangle(fname, mode="auto"):
 		res.append(ang)
 	return np.array(ids), np.array(res)
 
-#def read_tconst(fname):
-#	"""Reads time constants from file, discarding those marked bad.
-#	Returns format id,val"""
-#	res  = np.loadtxt(fname).T
-#	good = res[1]>0
-#	res  = res[:2,good]
-#	return res[0].astype(int), res[1]
-
 def read_tconst(fname, id=None, mode="auto"):
 	if mode == "hdf" or mode == "auto" and fname.endswith(".hdf"):
 		return read_tconst_hdf(fname, id=id)

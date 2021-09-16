@@ -248,6 +248,9 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 			ra =ra /utils.degree,  dec=dec/utils.degree,
 			bounds = bounds/utils.degree)
 
+	if "gseason" in entry:
+		res[entry.gseason] = True
+
 	# Planets
 	for obj in ["Sun","Moon","Mercury","Venus","Mars","Jupiter","Saturn","Uranus","Neptune"]:
 		res[obj] = coordinates.ephem_pos(obj, utils.ctime2mjd(t))/utils.degree
@@ -297,7 +300,11 @@ def build_tod_stats(entry, Naz=8, Nt=2):
 	return res
 
 def merge_tod_stats(statlist):
-	return bunch.Bunch(**{key: np.array([stat[key] for stat in statlist]) for key in statlist[0]})
+	keys = np.unique(np.concatenate([list(stat.keys()) for stat in statlist]))
+	res  = bunch.Bunch()
+	for key in keys:
+		res[key] = np.array([(stat[key] if key in stat else False) for stat in statlist])
+	return res
 
 def get_tods(selector, db):
 	try:
