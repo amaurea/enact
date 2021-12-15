@@ -272,14 +272,14 @@ def detvecs_simple(fourier, srate, dets=None, type=None, nbin=None, nmin=None, v
 	nmin  = config.get("nmat_uncorr_nmin", nmin)
 	whiten= config.get("nmat_uncorr_whiten")
 
-	if type is "exp":
+	if type == "exp":
 		bins = utils.expbin(nfreq, nbin=nbin, nmin=nmin)
-	elif type is "lin":
+	elif type == "lin":
 		bins = utils.linbin(nfreq, nbin=nbin, nmin=nmin)
 	else: raise ValueError("No such power binning type '%s'" % type)
 	nbin  = bins.shape[0] # expbin may not provide exactly what we want
 
-	if vecs is None: vecs = np.full([ndet,0],1)
+	if vecs == None: vecs = np.full([ndet,0],1)
 	# Initialize our noise vectors with default values
 	vecs = np.asarray(vecs)
 	nvec = vecs.shape[-1]
