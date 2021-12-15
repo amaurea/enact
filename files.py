@@ -490,7 +490,7 @@ def read_buddies(fname, mode="auto"):
 		# detector-dependent format
 		groups = utils.find_equal_groups(res[:,0])
 		dets   = [int(res[g[0],0]) for g in groups]
-		buds   = np.array([res[g,1:] for g in groups])
+		buds   = np.array([res[g,1:] for g in groups], dtype=object)
 		return dets, buds
 
 def read_apex(fname):

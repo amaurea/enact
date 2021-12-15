@@ -267,7 +267,7 @@ def read_point_offsets(entry, no_correction=False):
 		dataset.DataField("point_template",template, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("point_correction",correction),
 		dataset.DataField("entry", entry)]
-	if not no_correction and "point_slopes" in entry:
+	if not no_correction and "point_slopes" in entry and entry.point_slopes is not None:
 		slope = try_read_dict(files.read_point_slopes, "point_slopes", entry.point_slopes, entry.id)
 		fields.append(dataset.DataField("point_slope", slope))
 	return dataset.DataSet(fields)
