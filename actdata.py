@@ -501,7 +501,7 @@ def read(entry, fields=None, exclude=None, include=None, verbose=False, dets=Non
 	d = dataset.DataField("dummy", dets=dets)
 	for field in fields:
 		t1 = time.time()
-		if field is "tod" and d is not None:
+		if field == "tod" and d is not None:
 			d2 = readers[field](entry, dets=d.dets)
 		else:
 			d2 = readers[field](entry)
@@ -1159,6 +1159,7 @@ def gapfill_helper(tod, cut):
 	gapfiller = {
 			"linear":gapfill.gapfill_linear,
 			"joneig":gapfill.gapfill_joneig,
+			"common":gapfill.gapfill_common,
 			"none": gapfill_dummy,
 			}[method]
 	gapfiller(tod, cut, inplace=True, overlap=context)
