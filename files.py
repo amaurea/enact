@@ -114,6 +114,13 @@ def read_polangle(fname, mode="auto"):
 		res.append(ang)
 	return np.array(ids), np.array(res)
 
+def read_poleff(fname):
+	"""Reads the polarization efficiency per detector. The file format is
+	[id val] per line, and id,val is returned."""
+	ids, vals = np.loadtxt(fname, usecols=(0,1), ndmin=2).T
+	ids = ids.astype(int)
+	return ids, vals
+
 def read_tconst(fname, id=None, mode="auto"):
 	if mode == "hdf" or mode == "auto" and fname.endswith(".hdf"):
 		return read_tconst_hdf(fname, id=id)

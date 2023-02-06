@@ -117,6 +117,13 @@ def read_gain(entry):
 		datafields.append(dataset.DataField("flatfield", flat_gain, dets=build_detname(flat_dets, entry), det_index=0))
 	if "gain_factor" in entry:
 		datafields.append(dataset.DataField("gain_factor", float(entry.gain_factor)))
+	# Thibaut test. Consider removing this later
+	try:
+		dets2, gain_raw2 = try_read(files.read_gain, "gain2", entry.gain2)
+		mask = np.isfinite(gain_raw2)*(gain_raw2 != 0)
+		dets2, gain_raw2 = dets2[mask], gain_raw2[mask]
+		datafields.append(dataset.DataField("gain_raw2", gain_raw2, dets=build_detname(dets2, entry), det_index=0))
+	except (KeyError, AttributeError): pass
 	return dataset.DataSet(datafields)
 
 def calibrate_gain(data):
@@ -153,6 +160,11 @@ def calibrate_gain(data):
 	elif data.gain_mode == "direct": pass
 	else: raise ValueError("Unrecognized gain_mode '%s'" % data.gain_mode)
 	data += dataset.DataField("gain", gain, dets=data.dets, det_index=0)
+	# Thibaut test. Consider removing this later
+	if "gain_raw2" in data:
+		correction = gain/data.gain_raw
+		gain2 = data.gain_raw2 * correction
+		data += dataset.DataField("gain2", gain2, dets=data.dets, det_index=0)
 	return data
 
 def read_mce_filter(entry):
@@ -168,9 +180,13 @@ def read_mce_filter(entry):
 
 def read_polangle(entry):
 	dets, data = try_read(files.read_polangle, "polangle", entry.polangle)
-	return dataset.DataSet([
+	data = dataset.DataSet([
 		dataset.DataField("polangle", data, dets=build_detname(dets, entry), det_index=0),
 		dataset.DataField("entry", entry)])
+	if "poleff" in entry:
+		dets, data = try_read(files.read_poleff, "poleff", entry.poleff)
+		data += dataset.DataField("poleff", data, dets=build_detname(dets, entry), det_index=0)
+	return data
 
 def read_tconst(entry):
 	dets, data = try_read(files.read_tconst, "tconst", entry.tconst, id=entry.id)
@@ -709,6 +725,8 @@ def calibrate_focalplane(data):
 	if "polangle" in data:
 		polangle     = -(data.polangle + np.pi/2) + ocoords[2]
 		det_comps = np.ascontiguousarray(np.array([ polangle*0+1, np.cos(+2*polangle), np.sin(2*polangle)]).T)
+		if "poleff" in data:
+			det_comps[:,1:] *= data.poleff[:,None]
 		data += dataset.DataSet([
 			dataset.DataField("polangle_raw",     data.polangle,     dets=data.dets, det_index=0),
 			dataset.DataField("polangle",         polangle,          dets=data.dets, det_index=0),

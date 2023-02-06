@@ -46,7 +46,7 @@ def setup_filedb():
 	variables. The result will be either a FormatDB or ExecDB based on the
 	format of the fildb file."""
 	override= config.get("file_override")
-	if override is "none": override = None
+	if override == "none": override = None
 	return execdb.ExecDB(cjoin(["root","dataset","filedb"]), cjoin(["root","filevars"]), override=override, root=cjoin(["root"]))
 
 def cjoin(names): return os.path.join(*[config.get(n) for n in names])
