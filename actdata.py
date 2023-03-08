@@ -423,14 +423,19 @@ def read_pointsrcs(entry):
 
 def read_apex(entry):
 	# Get the raw weather info for the day this entry corresponds to.
-	# These may be empty if the data is missing
-	pwv        = try_read(files.read_apex, "pwv",  entry.pwv)
-	wind_speed = try_read(files.read_apex, "wind_speed", entry.wind_speed)
-	wind_dir   = try_read(files.read_apex, "wind_dir",   entry.wind_dir)
-	temperature= try_read(files.read_apex, "temperature",entry.temperature)
-	return dataset.DataSet([
-		dataset.DataField("apex",bunch.Bunch(pwv=pwv, wind_speed=wind_speed,
-		wind_dir=wind_dir, temperature=temperature))])
+	# This may be missing fields if the corredsponding data is missing
+	res = bunch.Bunch()
+	try: res.pwv = try_read(files.read_apex, "pwv",  entry.pwv)
+	except errors.DataMissing: pass
+	try: res.temperature= try_read(files.read_apex, "temperature",entry.temperature)
+	except errors.DataMissing: pass
+	try:
+		wind_speed = try_read(files.read_apex, "wind_speed", entry.wind_speed)
+		wind_dir   = try_read(files.read_apex, "wind_dir",   entry.wind_dir)
+		res.wind_speed = wind_speed
+		res.wind_dir   = wind_dir
+	except errors.DataMissing: pass
+	return dataset.DataSet([dataset.DataField("apex",res)])
 
 def read_tags(entry):
 	tag_defs = try_read(files.read_tags, "tag_defs", entry.tag_defs)
@@ -908,27 +913,41 @@ def calibrate_apex(data):
 	"""Extract the mean of the part of the weather data relevant for
 	this tod. Boresight must have been already calibrated"""
 	require(data, ["apex","boresight"])
-	# First replace wind direction with the wind vector. Coordinate system is
+	def extract(arr, period, mask, tol=300):
+		pmask = mask & (arr[:,0]>=period[0])&(arr[:,0]<=period[1])
+		if np.sum(pmask==0):
+			pmask = mask & (arr[:,0]>=period[0]-tol)&(arr[:,0]<=period[1]+tol)
+		return arr[pmask,1:]
+	def between(a, vmin, vmax):
+		return (a[:,1]>=vmin)&(a[:,1]<vmax)
+	period = data.boresight[0,[0,-1]]
+	# Tolerance
+	# Handle pwv
+	if "pwv" in data.apex:
+		data.apex.pwv = np.mean(extract(data.apex.pwv, period, between(data.apex.pwv, 0, 50)))
+	else:
+		data.apex.pwv = np.nan
+	# Replace wind direction with the wind vector. Coordinate system is
 	# x-east, y-north, and indicates the direction the wind is blowing
 	# *towards*, hence the minus signs.
-	ispeed, idir = utils.common_inds([data.apex.wind_speed[:,0], data.apex.wind_dir[:,0]])
-	wind = np.zeros([len(ispeed),3])
-	wind[:,0] =  data.apex.wind_speed[ispeed,0]
-	wind[:,1] = -data.apex.wind_speed[ispeed,1] * np.sin(data.apex.wind_dir[idir,1]*utils.degree)
-	wind[:,2] = -data.apex.wind_speed[ispeed,1] * np.cos(data.apex.wind_dir[idir,1]*utils.degree)
-	# Then extract the mean values
-	period = data.boresight[0,[0,-1]]
-	def extract(arr, period, mask):
-		mask = mask & (arr[:,0]>=period[0])&(arr[:,0]<=period[1])
-		return arr[mask,1:]
-	def between(a, vmin, vmax): return (a[:,1]>=vmin)&(a[:,1]<vmax)
-	data.apex.pwv  = np.mean(extract(data.apex.pwv, period, between(data.apex.pwv, 0, 50)))
-	data.apex.temperature = np.mean(extract(data.apex.temperature, period, between(data.apex.temperature, -70,50)))
-	wind_mask = between(data.apex.wind_speed, 0, 50)
-	data.apex.wind = np.mean(extract(wind, period, wind_mask[ispeed]),0)
-	data.apex.wind_speed = np.mean(extract(data.apex.wind_speed, period, wind_mask))
-	# Discard wind_dir, as it does not average well. Use wind instead.
-	del data.apex.wind_dir
+	if "wind_speed" in data.apex and "wind_dir" in data.apex:
+		ispeed, idir = utils.common_inds([data.apex.wind_speed[:,0], data.apex.wind_dir[:,0]])
+		wind = np.zeros([len(ispeed),3])
+		wind[:,0] =  data.apex.wind_speed[ispeed,0]
+		wind[:,1] = -data.apex.wind_speed[ispeed,1] * np.sin(data.apex.wind_dir[idir,1]*utils.degree)
+		wind[:,2] = -data.apex.wind_speed[ispeed,1] * np.cos(data.apex.wind_dir[idir,1]*utils.degree)
+		wind_mask = between(data.apex.wind_speed[ispeed], 0, 50)
+		data.apex.wind = np.mean(extract(wind, period, wind_mask[ispeed]),0)
+		data.apex.wind_speed = np.mean(extract(data.apex.wind_speed, period, wind_mask))
+		# Discard wind_dir, as it does not average well. Use wind instead.
+		del data.apex.wind_dir
+	else:
+		data.apex.wind = np.full(3, np.nan)
+		data.apex.wind_speed = np.nan
+	if "temperature" in data.apex:
+		data.apex.temperature = np.mean(extract(data.apex.temperature, period, between(data.apex.temperature, -70,50)))
+	else:
+		data.apex.temperature = np.nan
 	return data
 
 # These just turn cuts on or off, without changing their other properties

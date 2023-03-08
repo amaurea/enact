@@ -94,7 +94,7 @@ def read_gain_correction_hdf(fname, id=None):
 
 def read_flatfield(fname):
 	with h5py.File(fname, "r") as hfile:
-		dets  = hfile["dets"][()]
+		dets = hfile["dets"][()]
 		gain = hfile["gain"][()]
 	return dets, gain
 
