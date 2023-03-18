@@ -46,7 +46,7 @@ def setup_filedb():
 	variables. The result will be either a FormatDB or ExecDB based on the
 	format of the fildb file."""
 	override= config.get("file_override")
-	if override is "none": override = None
+	if override == "none": override = None
 	return execdb.ExecDB(cjoin(["root","dataset","filedb"]), cjoin(["root","filevars"]), override=override, root=cjoin(["root"]))
 
 def cjoin(names): return os.path.join(*[config.get(n) for n in names])
@@ -57,7 +57,14 @@ def get_patch_path(name):
 		toks[0] = os.path.join(config.get("root"), config.get("patch_dir"), toks[0])+".fits"
 	return ":".join(toks)
 
-def init():
-	global scans, data
+def init(fields=["scans","data"]):
+	if "scans" in fields: init_scans()
+	if "data"  in fields: init_data()
+
+def init_data():
+	global data
+	data = setup_filedb()
+
+def init_scans():
+	global scans
 	scans = todinfo.read(cjoin(["root","dataset","todinfo"]), vars={"root":cjoin(["root"])})
-	data  = setup_filedb()

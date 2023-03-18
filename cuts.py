@@ -67,11 +67,11 @@ def ground_cut(bore, det_offs, az_ranges=None, el_ranges=None):
 
 def avoidance_cut(bore, det_offs, site, name_or_pos, margin):
 	"""Cut samples that get too close to the specified object
-	(e.g. "Sun" or "Moon") or celestial position ([ra,dec] in racians).
+	(e.g. "Sun" or "Moon") or celestial position ([ra,dec] in radians).
 	Margin specifies how much to avoid the object by."""
 	cmargin = np.cos(margin)
 	mjd = utils.ctime2mjd(bore[0])
-	obj_pos    = coordinates.interpol_pos("cel","hor",name_or_pos,mjd,site)
+	obj_pos    = coordinates.interpol_pos("cel","tele",name_or_pos,mjd,site)
 	obj_pos[0] = utils.rewind(obj_pos[0], bore[1])
 	cosel      = np.cos(obj_pos[1])
 	# Only cut if above horizon
