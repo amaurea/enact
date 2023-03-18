@@ -41,7 +41,7 @@ class ACTScan(scan.Scan):
 		self.comps     = np.zeros([ndet,4])
 		self.beam      = d.beam
 		self.pointsrcs = d.pointsrcs
-		self.comps     = d.det_comps
+		self.comps     = d.det_comps # [ndet,{T,Q,U}]
 		self.hwp = d.hwp
 		self.hwp_phase = d.hwp_phase
 		self.dets  = d.dets
@@ -117,13 +117,16 @@ class ACTScan(scan.Scan):
 		# tags is only needed here for read_combo support, but that is mostly broken
 		# anyway.
 		t1 = time.time()
-		self.d += actdata.read(self.entry, fields=["tod", "tags"], dets=self.d.dets)
+		dets    = self.d.dets.copy()
+		self.d += actdata.read(self.entry, fields=["tod", "tags"], dets=dets)
 		#if debug_inject is not None: self.d.tod += debug_inject
 		t2 = time.time()
 		if verbose: print("read  %-14s in %6.3f s" % ("tod", t2-t1))
 		if config.get("tod_skip_deconv"): ops = ["tod_real"]
 		else: ops = ["tod"]
 		actdata.calibrate(self.d, operations=ops, verbose=verbose)
+		# Ensure det order is preserved. DataSet += does not preserve det order
+		self.d.restrict(dets=dets)
 		tod = self.d.tod
 		# Remove tod from our local d, so we won't end up hauling it around forever
 		del self.d.tod

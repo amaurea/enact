@@ -1,6 +1,6 @@
 from __future__ import division, print_function
 import numpy as np, scipy as sp, time, h5py
-from enlib import nmat, utils, array_ops, fft, errors, config, gapfill, scan
+from enlib import nmat, utils, array_ops, fft, errors, config, gapfill, scan, bunch
 
 # This is an implementation of the standard ACT noise model,
 # which decomposes the noise into a detector-uncorrelated

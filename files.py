@@ -94,7 +94,7 @@ def read_gain_correction_hdf(fname, id=None):
 
 def read_flatfield(fname):
 	with h5py.File(fname, "r") as hfile:
-		dets  = hfile["dets"][()]
+		dets = hfile["dets"][()]
 		gain = hfile["gain"][()]
 	return dets, gain
 
@@ -113,6 +113,13 @@ def read_polangle(fname, mode="auto"):
 		ids.append(id)
 		res.append(ang)
 	return np.array(ids), np.array(res)
+
+def read_poleff(fname):
+	"""Reads the polarization efficiency per detector. The file format is
+	[id val] per line, and id,val is returned."""
+	ids, vals = np.loadtxt(fname, usecols=(0,1), ndmin=2).T
+	ids = ids.astype(int)
+	return ids, vals
 
 def read_tconst(fname, id=None, mode="auto"):
 	if mode == "hdf" or mode == "auto" and fname.endswith(".hdf"):
