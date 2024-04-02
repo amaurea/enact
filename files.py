@@ -92,11 +92,58 @@ def read_gain_correction_hdf(fname, id=None):
 			res[tod_id][tag] = value
 	return res
 
-def read_flatfield(fname):
+def read_flatfield(fname, mode="static", ctime=None):
+	if   mode == "static": return read_flatfield_static(fname)
+	elif mode == "interp": return read_flatfield_interp(fname, ctime)
+	else: raise IOError("Unrecognized flatfield mode '%s'" % str(mode))
+
+def read_flatfield_static(fname):
 	with h5py.File(fname, "r") as hfile:
 		dets = hfile["dets"][()]
 		gain = hfile["gain"][()]
 	return dets, gain
+
+def read_flatfield_interp(fname, ctime, fmt="auto"):
+	if fmt == "auto":
+		if fname.endswith(".csv") or fname.endswith(".txt"): fmt = "csv"
+		elif fname.endswith(".hdf") or fname.endswith(".h5"): fmt = "hdf"
+		else: fmt = fname.split(".")[-1]
+	if fmt == "csv":
+		model = read_flatfields_csv(fname)
+	elif fmt == "hdf":
+		model = bunch.read(fname)
+	else: raise IOError("Unrecognized flatfield format '%s'" % str(fmt))
+	flatfield = utils.interp([ctime], model.t, model.gains)[:,0]
+	return model.dets, flatfield
+
+def read_flatfields_csv(fname):
+	"""Read a model in the thomas format
+	
+	 ,det1,det2,det3,...
+	 t1,val11,val12,...
+	 t2,val21,val22,...
+
+	with empty entries for missing values, returning
+	model = Bunch(gains, dets, t)"""
+	with open(fname, "r") as ifile:
+		line  = next(ifile)
+		gains = []
+		dets  = np.array([int(w) for w in line.split(",")[1:]])
+		ts    = []
+		for line in ifile:
+			toks = line.strip().split(",")
+			t    = float(toks[0])
+			vals = []
+			for tok in toks[1:]:
+				if tok == "": vals.append(0.0)
+				else:         vals.append(float(tok))
+			ts.append(t)
+			gains.append(vals)
+		return bunch.Bunch(
+				gains = np.array(gains).T,
+				dets  = dets,
+				t     = np.array(ts)
+			)
 
 def read_polangle(fname, mode="auto"):
 	"""Reads polarization angles in radians, discarding ones marked bad
@@ -283,7 +330,7 @@ def read_site(fname):
 def read_array_info(fname):
 	"""Read the array info, which contains the id, row, column, frequency,
 	wafer, pairing, etc. info."""
-	info = astropy.io.fits.open(fname)[1].data
+	info = astropy.io.fits.open(fname)[1].data.view(np.recarray)
 	nrow = np.max(info.row)+1
 	ncol = np.max(info.col)+1
 	ndet = len(info)

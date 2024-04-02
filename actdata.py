@@ -113,7 +113,8 @@ def read_gain(entry):
 		dataset.DataField("entry", entry)]
 	# Read the flatfield if available
 	if "flatfield" in entry:
-		flat_dets, flat_gain = try_read(files.read_flatfield, "flatfield", entry.flatfield)
+		ctime = float(entry.id.split(".")[0])
+		flat_dets, flat_gain = try_read(files.read_flatfield, "flatfield", entry.flatfield, ctime=ctime)
 		datafields.append(dataset.DataField("flatfield", flat_gain, dets=build_detname(flat_dets, entry), det_index=0))
 	if "gain_factor" in entry:
 		datafields.append(dataset.DataField("gain_factor", float(entry.gain_factor)))
@@ -153,12 +154,16 @@ def calibrate_gain(data):
 	if "gain_factor" in data:
 		gain *= data.gain_factor
 	# Apply mce filter gain if necessary
-	if data.gain_mode == "mce":
+	modes = data.gain_mode.split(",")
+	if "mce" in modes:
 		gain /= float(data.mce_gain)
-	elif data.gain_mode == "mce_compat":
+	elif "mce_compat" in modes:
 		gain /= data.mce_gain/1217.8583043
-	elif data.gain_mode == "direct": pass
-	else: raise ValueError("Unrecognized gain_mode '%s'" % data.gain_mode)
+	elif "direct" in modes: pass
+	else: raise ValueError("Unrecognized gain_mode must contain one of mce, mce_compat or direct, but was '%s'" % data.gain_mode)
+	# Apply sign correction if necessary
+	if "signfix" in modes:
+		gain *= data.array_info_active.optical_sign
 	data += dataset.DataField("gain", gain, dets=data.dets, det_index=0)
 	# Thibaut test. Consider removing this later
 	if "gain_raw2" in data:
@@ -407,12 +412,10 @@ def read_layout(entry):
 
 def read_array_info(entry):
 	data = try_read(files.read_array_info, "array_info", entry.array_info)
-	info = recfunctions.stack_arrays([
-		build_detname(data.info.det_uid, entry),
-		recfunctions.drop_fields(data.info, "det_uid"),
-		])
+	dets = build_detname(data.info.det_uid, entry)
 	return dataset.DataSet([
 		dataset.DataField("array_info",data),
+		dataset.DataField("array_info_active", data.info, dets=dets, det_index=0),
 		dataset.DataField("entry", entry)])
 
 def read_pointsrcs(entry):
